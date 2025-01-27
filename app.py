@@ -12,6 +12,14 @@ import warnings
 logging.getLogger("streamlit_health_check").setLevel(logging.ERROR)
 warnings.filterwarnings('ignore')
 
+# Custom color schemes
+COLORS = {
+    'primary': ['#1f77b4', '#2ca02c', '#ff7f0e', '#d62728', '#9467bd', '#8c564b'],
+    'sequential': px.colors.sequential.Blues,
+    'background': '#ffffff',
+    'text': '#2c3e50'
+}
+
 # Set page configuration
 st.set_page_config(
     page_title="Real Estate Analytics Dashboard",
@@ -20,7 +28,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Custom CSS with updated styling
 st.markdown("""
     <style>
     .main { padding: 0rem 1rem; }
@@ -42,7 +50,27 @@ st.markdown("""
         font-size: 1.5rem;
         font-weight: bold;
         margin-bottom: 1rem;
-        color: #1f77b4;
+        color: #2c3e50;
+    }
+    .dataframe {
+        font-size: 12px;
+    }
+    .stDataFrame {
+        background-color: #ffffff;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    div[data-testid="stMetricValue"] {
+        font-size: 2rem;
+        color: #2c3e50;
+    }
+    .stAlert {
+        border-radius: 0.5rem;
+    }
+    .plot-container > div {
+        border-radius: 0.5rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     </style>
 """, unsafe_allow_html=True)
@@ -122,26 +150,9 @@ def normalize_status(status):
         'CANCEL': 'CANCELLED',
         'CANCELLED': 'CANCELLED',
         'BLOCKED': 'BLOCKED',
+        'TRANSFER': 'TRANSFER'
     }
-    return status_map.get(value, "Not Specified")
-
-def normalize_sale_type(sale_type):
-    """Normalize sale type values"""
-    value = safe_string_handling(sale_type)
-    if not value:
-        return "Not Specified"
-    
-    value = value.upper()
-    if 'OLD' in value:
-        return 'OLD SALE'
-    elif 'NEW' in value:
-        return 'NEW SALE'
-    elif 'CANCEL' in value:
-        return 'CANCELLED'
-    elif 'TRANSFER' in value:
-        return 'TRANSFER'
-    
-    return value
+    return status_map.get(value, value)
 
 def process_dataframe(df, sheet_name):
     """Process and clean dataframe"""
@@ -158,8 +169,8 @@ def process_dataframe(df, sheet_name):
             df['Tower'] = df['Tower'].apply(normalize_tower)
         if 'Current Status' in df.columns:
             df['Current Status'] = df['Current Status'].apply(normalize_status)
-        if 'Old sale / New sale' in df.columns:
-            df['Old sale / New sale'] = df['Old sale / New sale'].apply(normalize_sale_type)
+        if 'Cancellation / Transfer' in df.columns:
+            df['Cancellation / Transfer'] = df['Cancellation / Transfer'].apply(normalize_status)
         
         # Clean numeric columns
         numeric_columns = ['Total Consideration', 'Required Collection', 'Current collection', 
@@ -167,6 +178,13 @@ def process_dataframe(df, sheet_name):
         for col in df.columns:
             if any(num_col.lower() in col.lower() for num_col in numeric_columns):
                 df[col] = df[col].apply(clean_numeric)
+        
+        # Add derived columns
+        if all(col in df.columns for col in ['Current collection', 'Required Collection']):
+            df['Collection Percentage'] = (df['Current collection'] / df['Required Collection'] * 100).clip(0, 100)
+            df['Collection Shortfall'] = df['Required Collection'] - df['Current collection']
+            df['Collection Status'] = np.where(df['Collection Percentage'] >= 100, 'Met Target',
+                                    np.where(df['Collection Percentage'] >= 75, 'Near Target', 'Below Target'))
         
         return df
     
@@ -234,7 +252,6 @@ if st.session_state.data_loaded:
         # Sidebar filters
         st.sidebar.title("Filters")
         
-        # Get the dataframe from session state
         collection_df = st.session_state.collection_df
         
         # Get unique values for filters
@@ -243,79 +260,124 @@ if st.session_state.data_loaded:
         bhk_types = sorted([b for b in collection_df['BHK'].unique() 
                           if b != "Not Specified" and pd.notna(b)])
         
-        selected_tower = st.sidebar.selectbox("Select Tower", ["All Towers"] + towers)
-        selected_bhk = st.sidebar.selectbox("Select BHK Type", ["All BHK"] + bhk_types)
+        # Enhanced filters
+        with st.sidebar:
+            st.markdown("### Unit Filters")
+            selected_tower = st.selectbox("Select Tower", ["All Towers"] + towers)
+            selected_bhk = st.selectbox("Select BHK Type", ["All BHK"] + bhk_types)
+            
+            st.markdown("### Collection Filters")
+            collection_filter = st.radio(
+                "Collection Status",
+                ["All", "Below Target", "Near Target", "Met Target"],
+                index=0
+            )
+            
+            st.markdown("### Status Filters")
+            status_filter = st.multiselect(
+                "Unit Status",
+                ["SOLD", "CANCELLED", "TRANSFER", "AVAILABLE"],
+                default=["SOLD"]
+            )
         
-        # Filter data
+        # Apply filters
         df = collection_df.copy()
         if selected_tower != "All Towers":
             df = df[df['Tower'] == selected_tower]
         if selected_bhk != "All BHK":
             df = df[df['BHK'] == selected_bhk]
+        if collection_filter != "All":
+            df = df[df['Collection Status'] == collection_filter]
+        if status_filter:
+            df = df[df['Current Status'].isin(status_filter)]
         
-        # Display metrics
+        # Metrics Row
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Total Units", len(df))
+            st.metric(
+                "Total Units",
+                f"{len(df):,}",
+                delta=f"{len(df)/len(collection_df)*100:.1f}% of total"
+            )
         
         with col2:
             total_consideration = df['Total Consideration'].sum()
-            st.metric("Total Consideration", f"₹{total_consideration:,.0f}")
+            st.metric(
+                "Total Consideration",
+                f"₹{total_consideration:,.0f}Cr",
+                delta=f"₹{total_consideration/1e7:.1f}Cr"
+            )
         
         with col3:
             current_collection = df['Current collection'].sum()
-            st.metric("Current Collection", f"₹{current_collection:,.0f}")
+            required_collection = df['Required Collection'].sum()
+            collection_percentage = (current_collection / required_collection * 100) if required_collection else 0
+            st.metric(
+                "Collection Achievement",
+                f"{collection_percentage:.1f}%",
+                delta=f"₹{(required_collection - current_collection)/1e7:.1f}Cr pending"
+            )
         
         with col4:
             total_area = df['Area'].sum()
-            st.metric("Total Area (sq ft)", f"{total_area:,.0f}")
+            st.metric(
+                "Total Area",
+                f"{total_area:,.0f} sq.ft",
+                delta=f"{df['Area'].mean():,.0f} avg"
+            )
         
         # Unit Distribution
         st.markdown("---")
-        st.markdown('<p class="section-title">Sales Analytics</p>', unsafe_allow_html=True)
+        st.markdown('<p class="section-title">Unit Distribution Analysis</p>', unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("Unit Distribution by Tower")
-            tower_dist = df['Tower'].value_counts()
+            # Enhanced Tower Distribution
+            tower_dist = df[df['Tower'] != "Not Specified"]['Tower'].value_counts()
             fig_tower = px.bar(
                 x=tower_dist.index,
                 y=tower_dist.values,
+                title="Unit Distribution by Tower",
                 labels={'x': 'Tower', 'y': 'Number of Units'},
                 color=tower_dist.values,
-                color_continuous_scale='Viridis'
+                color_continuous_scale='Blues'
             )
             fig_tower.update_layout(
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                showlegend=False
+                plot_bgcolor=COLORS['background'],
+                paper_bgcolor=COLORS['background'],
+                showlegend=False,
+                title_x=0.5
             )
             st.plotly_chart(fig_tower, use_container_width=True)
         
         with col2:
-            st.subheader("BHK Distribution")
-            bhk_dist = df['BHK'].value_counts()
-            fig_bhk = px.pie(
+            # Enhanced BHK Distribution
+            bhk_dist = df[df['BHK'] != "Not Specified"]['BHK'].value_counts()
+            fig_bhk = go.Figure(data=[go.Pie(
+                labels=bhk_dist.index,
                 values=bhk_dist.values,
-                names=bhk_dist.index,
-                hole=0.4
-            )
+                hole=0.4,
+                marker_colors=COLORS['primary']
+            )])
             fig_bhk.update_layout(
-                plot_bgcolor='white',
-                paper_bgcolor='white'
+                title_text="BHK Distribution",
+                title_x=0.5,
+                plot_bgcolor=COLORS['background'],
+                paper_bgcolor=COLORS['background']
             )
             st.plotly_chart(fig_bhk, use_container_width=True)
         
         # Collection Analysis
-        st.markdown('<p class="section-title">Collection Analytics</p>', unsafe_allow_html=True)
+        st.markdown("---")
+        st.markdown('<p class="section-title">Collection Analysis</p>', unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("Collection vs Required Collection by Tower")
-            tower_collection = df.groupby('Tower').agg({
+            # Enhanced Collection vs Required
+            tower_collection = df[df['Tower'] != "Not Specified"].groupby('Tower').agg({
                 'Required Collection': 'sum',
                 'Current collection': 'sum'
             }).reset_index()
@@ -324,100 +386,133 @@ if st.session_state.data_loaded:
             fig_collection.add_trace(go.Bar(
                 name='Required Collection',
                 x=tower_collection['Tower'],
-                y=tower_collection['Required Collection'],
-                marker_color='#1f77b4'
+                y=tower_collection['Required Collection']/1e7,
+                marker_color=COLORS['primary'][0]
             ))
             fig_collection.add_trace(go.Bar(
                 name='Current Collection',
                 x=tower_collection['Tower'],
-                y=tower_collection['Current collection'],
-                marker_color='#2ca02c'
+                y=tower_collection['Current collection']/1e7,
+                marker_color=COLORS['primary'][1]
             ))
             fig_collection.update_layout(
                 barmode='group',
-                plot_bgcolor='white',
-                paper_bgcolor='white'
+                title="Collection vs Required Collection by Tower (Cr)",
+                plot_bgcolor=COLORS['background'],
+                paper_bgcolor=COLORS['background'],
+                title_x=0.5,
+                yaxis_title="Amount (Cr)"
             )
             st.plotly_chart(fig_collection, use_container_width=True)
         
         with col2:
-            st.subheader("Collection Efficiency")
-            df['Collection Percentage'] = (
-                df['Current collection'] / df['Required Collection'] * 100
-            ).clip(0, 100)
-            
-            fig_efficiency = px.histogram(
-                df,
-                x='Collection Percentage',
-                color='BHK',
-                nbins=20,
-                opacity=0.7
-            )
+            # Enhanced Collection Efficiency
+            collection_status = df['Collection Status'].value_counts()
+            fig_efficiency = go.Figure(data=[go.Pie(
+                labels=collection_status.index,
+                values=collection_status.values,
+                hole=0.4,
+                marker_colors=['#ff6b6b', '#ffd93d', '#6bcb77']
+            )])
             fig_efficiency.update_layout(
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                xaxis_title="Collection Percentage",
-                yaxis_title="Number of Units"
+                title="Collection Status Distribution",
+                title_x=0.5,
+                plot_bgcolor=COLORS['background'],
+                paper_bgcolor=COLORS['background']
             )
             st.plotly_chart(fig_efficiency, use_container_width=True)
         
         # BSP Analysis
+        st.markdown("---")
         st.markdown('<p class="section-title">Pricing Analytics</p>', unsafe_allow_html=True)
         
         if 'BSP' in df.columns:
             fig_bsp = px.box(
-                df,
+                df[df['Tower'] != "Not Specified"],
                 x='Tower',
                 y='BSP',
                 color='BHK',
-                points="all"
+                points="all",
+                title="BSP Distribution by Tower and BHK Type"
             )
             fig_bsp.update_layout(
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                xaxis_title="Tower",
-                yaxis_title="BSP (₹/sq ft)"
+                plot_bgcolor=COLORS['background'],
+                paper_bgcolor=COLORS['background'],
+                title_x=0.5,
+                yaxis_title="BSP (₹/sq ft)",
+                showlegend=True
             )
             st.plotly_chart(fig_bsp, use_container_width=True)
         
-        # Monthly Analysis
+        # Monthly Analysis with Transfer/Cancel Focus
+        st.markdown("---")
         st.markdown('<p class="section-title">Monthly Trends</p>', unsafe_allow_html=True)
         
         monthly_df = st.session_state.monthly_df
         monthly_filtered = monthly_df.copy()
+        
         if selected_tower != "All Towers":
             monthly_filtered = monthly_filtered[monthly_filtered['Tower'] == selected_tower]
         if selected_bhk != "All BHK":
             monthly_filtered = monthly_filtered[monthly_filtered['BHK'] == selected_bhk]
         
+        # Convert Month No to numeric and handle any conversion errors
         monthly_filtered['Month No'] = pd.to_numeric(monthly_filtered['Month No'], errors='coerce')
         monthly_filtered = monthly_filtered.dropna(subset=['Month No'])
         
-        monthly_agg = monthly_filtered.groupby(
-            ['Month No', 'Old sale / New sale']
-        ).size().reset_index(name='Count')
+        # Create separate trends for sales, transfers, and cancellations
+        monthly_stats = monthly_filtered.groupby(['Month No', 'Cancellation / Transfer']).size().reset_index(name='Count')
         
         fig_monthly = px.line(
-            monthly_agg,
+            monthly_stats,
             x='Month No',
             y='Count',
-            color='Old sale / New sale',
+            color='Cancellation / Transfer',
+            title="Monthly Trends - Sales, Transfers, and Cancellations",
             markers=True
         )
         fig_monthly.update_layout(
-            plot_bgcolor='white',
-            paper_bgcolor='white',
+            plot_bgcolor=COLORS['background'],
+            paper_bgcolor=COLORS['background'],
+            title_x=0.5,
             xaxis_title="Month Number",
-            yaxis_title="Number of Sales"
+            yaxis_title="Number of Transactions",
+            showlegend=True
         )
         st.plotly_chart(fig_monthly, use_container_width=True)
         
-        # Detailed Data Table
+        # Detailed Data Table with Enhanced Filtering
+        st.markdown("---")
         st.markdown('<p class="section-title">Detailed Unit Information</p>', unsafe_allow_html=True)
         
+        # Additional table filters
+        col1, col2 = st.columns(2)
+        with col1:
+            min_collection = st.number_input(
+                "Minimum Collection Percentage",
+                min_value=0,
+                max_value=100,
+                value=0
+            )
+        with col2:
+            max_collection = st.number_input(
+                "Maximum Collection Percentage",
+                min_value=0,
+                max_value=100,
+                value=100
+            )
+        
+        # Apply additional filters to table data
+        table_df = df[
+            (df['Collection Percentage'] >= min_collection) &
+            (df['Collection Percentage'] <= max_collection)
+        ]
+        
+        # Column selector
         default_columns = ['Apt No', 'BHK', 'Tower', 'Area', 'Current Status', 
-                          'Total Consideration', 'Current collection', 'Customer Name']
-        available_columns = [col for col in df.columns if col in df.columns]
+                          'Total Consideration', 'Current collection', 'Collection Percentage',
+                          'Collection Status', 'Customer Name']
+        available_columns = [col for col in table_df.columns if col in table_df.columns]
         
         selected_columns = st.multiselect(
             "Select columns to display",
@@ -426,8 +521,18 @@ if st.session_state.data_loaded:
         )
 
         if selected_columns:
+            # Format numeric columns
+            formatted_df = table_df[selected_columns].copy()
+            for col in ['Total Consideration', 'Current collection']:
+                if col in selected_columns:
+                    formatted_df[col] = formatted_df[col].apply(lambda x: f"₹{x:,.0f}")
+            if 'Collection Percentage' in selected_columns:
+                formatted_df['Collection Percentage'] = formatted_df['Collection Percentage'].apply(lambda x: f"{x:.1f}%")
+            if 'Area' in selected_columns:
+                formatted_df['Area'] = formatted_df['Area'].apply(lambda x: f"{x:,.0f}")
+            
             st.dataframe(
-                df[selected_columns].sort_values('Apt No'),
+                formatted_df.sort_values('Apt No'),
                 use_container_width=True,
                 hide_index=True
             )
@@ -439,7 +544,7 @@ if st.session_state.data_loaded:
         col1, col2 = st.columns(2)
         
         with col1:
-            csv = df.to_csv(index=False).encode('utf-8')
+            csv = table_df.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="Download Filtered Data as CSV",
                 data=csv,
@@ -450,14 +555,14 @@ if st.session_state.data_loaded:
         with col2:
             summary_stats = pd.DataFrame({
                 'Metric': ['Total Units', 'Total Area (sq ft)', 'Total Consideration', 
-                          'Current Collection', 'Average BSP', 'Average Unit Area'],
+                          'Current Collection', 'Average BSP', 'Average Collection %'],
                 'Value': [
-                    len(df),
-                    f"{df['Area'].sum():,.0f}",
-                    f"₹{df['Total Consideration'].sum():,.0f}",
-                    f"₹{df['Current collection'].sum():,.0f}",
-                    f"₹{df['BSP'].mean():,.2f}",
-                    f"{df['Area'].mean():,.0f}"
+                    len(table_df),
+                    f"{table_df['Area'].sum():,.0f}",
+                    f"₹{table_df['Total Consideration'].sum():,.0f}",
+                    f"₹{table_df['Current collection'].sum():,.0f}",
+                    f"₹{table_df['BSP'].mean():,.2f}",
+                    f"{table_df['Collection Percentage'].mean():.1f}%"
                 ]
             })
             csv_summary = summary_stats.to_csv(index=False).encode('utf-8')
@@ -467,38 +572,7 @@ if st.session_state.data_loaded:
                 file_name=f"summary_stats_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
             )
-
-        # Data Quality Section
-        st.markdown("---")
-        st.markdown('<p class="section-title">Data Quality Report</p>', unsafe_allow_html=True)
         
-        with st.expander("View Data Quality Issues"):
-            data_quality_issues = []
-            
-            # Check for missing values
-            for column in df.columns:
-                missing_count = df[column].isna().sum()
-                if missing_count > 0:
-                    data_quality_issues.append(f"Missing values in {column}: {missing_count} records")
-            
-            # Check for zero or negative values in numeric columns
-            numeric_cols = ['Total Consideration', 'Required Collection', 'Current collection', 
-                          'Area', 'BSP']
-            for col in numeric_cols:
-                if col in df.columns:
-                    zero_count = (df[col] == 0).sum()
-                    neg_count = (df[col] < 0).sum()
-                    if zero_count > 0:
-                        data_quality_issues.append(f"Zero values in {col}: {zero_count} records")
-                    if neg_count > 0:
-                        data_quality_issues.append(f"Negative values in {col}: {neg_count} records")
-            
-            if data_quality_issues:
-                for issue in data_quality_issues:
-                    st.warning(issue)
-            else:
-                st.success("No major data quality issues found!")
-
         # Footer
         st.markdown("---")
         st.markdown(f"*Dashboard last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
