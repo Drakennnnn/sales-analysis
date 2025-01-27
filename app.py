@@ -47,7 +47,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Data cleaning functions
 def safe_string_handling(value):
     """Safely convert any value to string"""
     if pd.isna(value):
@@ -66,7 +65,6 @@ def clean_numeric(value):
     if pd.isna(value):
         return 0
     if isinstance(value, str):
-        # Remove any non-numeric characters except decimal points and negative signs
         clean_str = re.sub(r'[^\d.-]', '', value)
         try:
             return float(clean_str)
@@ -145,22 +143,6 @@ def normalize_sale_type(sale_type):
     
     return value
 
-def normalize_payment_plan(plan):
-    """Normalize payment plan values"""
-    value = safe_string_handling(plan)
-    if not value:
-        return "Not Specified"
-    
-    value = value.upper()
-    plan_map = {
-        'CONSTRUCTION LINKED': 'CONSTRUCTION LINKED PLAN',
-        'CLP': 'CONSTRUCTION LINKED PLAN',
-        'DOWN PAYMENT': 'DOWN PAYMENT PLAN',
-        'DP': 'DOWN PAYMENT PLAN',
-        'FLEXI': 'FLEXI PAYMENT PLAN',
-    }
-    return plan_map.get(value, value)
-
 def process_dataframe(df, sheet_name):
     """Process and clean dataframe"""
     try:
@@ -178,8 +160,6 @@ def process_dataframe(df, sheet_name):
             df['Current Status'] = df['Current Status'].apply(normalize_status)
         if 'Old sale / New sale' in df.columns:
             df['Old sale / New sale'] = df['Old sale / New sale'].apply(normalize_sale_type)
-        if 'Payment Plan' in df.columns:
-            df['Payment Plan'] = df['Payment Plan'].apply(normalize_payment_plan)
         
         # Clean numeric columns
         numeric_columns = ['Total Consideration', 'Required Collection', 'Current collection', 
@@ -236,11 +216,6 @@ if uploaded_file is not None:
                 'Sales Summary'
             )
             
-            # Verify data loaded successfully
-            if collection_df.empty or sales_df.empty or monthly_df.empty or summary_df.empty:
-                st.error("Error loading one or more sheets. Please check the file format.")
-                st.stop()
-            
             # Store in session state
             st.session_state.data_loaded = True
             st.session_state.collection_df = collection_df
@@ -259,6 +234,7 @@ if st.session_state.data_loaded:
         # Sidebar filters
         st.sidebar.title("Filters")
         
+        # Get the dataframe from session state
         collection_df = st.session_state.collection_df
         
         # Get unique values for filters
@@ -271,40 +247,39 @@ if st.session_state.data_loaded:
         selected_bhk = st.sidebar.selectbox("Select BHK Type", ["All BHK"] + bhk_types)
         
         # Filter data
-        filtered_df = collection_df.copy()
+        df = collection_df.copy()
         if selected_tower != "All Towers":
-            filtered_df = filtered_df[filtered_df['Tower'] == selected_tower]
+            df = df[df['Tower'] == selected_tower]
         if selected_bhk != "All BHK":
-            filtered_df = filtered_df[filtered_df['BHK'] == selected_bhk]
+            df = df[df['BHK'] == selected_bhk]
         
         # Display metrics
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Total Units", len(filtered_df))
+            st.metric("Total Units", len(df))
         
         with col2:
-            total_consideration = filtered_df['Total Consideration'].sum()
+            total_consideration = df['Total Consideration'].sum()
             st.metric("Total Consideration", f"₹{total_consideration:,.0f}")
         
         with col3:
-            current_collection = filtered_df['Current collection'].sum()
+            current_collection = df['Current collection'].sum()
             st.metric("Current Collection", f"₹{current_collection:,.0f}")
         
         with col4:
-            total_area = filtered_df['Area'].sum()
+            total_area = df['Area'].sum()
             st.metric("Total Area (sq ft)", f"{total_area:,.0f}")
         
-        # Visualizations
+        # Unit Distribution
         st.markdown("---")
         st.markdown('<p class="section-title">Sales Analytics</p>', unsafe_allow_html=True)
         
-        # Unit Distribution
         col1, col2 = st.columns(2)
         
         with col1:
             st.subheader("Unit Distribution by Tower")
-            tower_dist = filtered_df['Tower'].value_counts()
+            tower_dist = df['Tower'].value_counts()
             fig_tower = px.bar(
                 x=tower_dist.index,
                 y=tower_dist.values,
@@ -321,7 +296,7 @@ if st.session_state.data_loaded:
         
         with col2:
             st.subheader("BHK Distribution")
-            bhk_dist = filtered_df['BHK'].value_counts()
+            bhk_dist = df['BHK'].value_counts()
             fig_bhk = px.pie(
                 values=bhk_dist.values,
                 names=bhk_dist.index,
@@ -340,7 +315,7 @@ if st.session_state.data_loaded:
         
         with col1:
             st.subheader("Collection vs Required Collection by Tower")
-            tower_collection = filtered_df.groupby('Tower').agg({
+            tower_collection = df.groupby('Tower').agg({
                 'Required Collection': 'sum',
                 'Current collection': 'sum'
             }).reset_index()
@@ -367,12 +342,12 @@ if st.session_state.data_loaded:
         
         with col2:
             st.subheader("Collection Efficiency")
-            filtered_df['Collection Percentage'] = (
-                filtered_df['Current collection'] / filtered_df['Required Collection'] * 100
-            ).clip(0, 100)  # Clip to reasonable range
+            df['Collection Percentage'] = (
+                df['Current collection'] / df['Required Collection'] * 100
+            ).clip(0, 100)
             
             fig_efficiency = px.histogram(
-                filtered_df,
+                df,
                 x='Collection Percentage',
                 color='BHK',
                 nbins=20,
@@ -386,6 +361,25 @@ if st.session_state.data_loaded:
             )
             st.plotly_chart(fig_efficiency, use_container_width=True)
         
+        # BSP Analysis
+        st.markdown('<p class="section-title">Pricing Analytics</p>', unsafe_allow_html=True)
+        
+        if 'BSP' in df.columns:
+            fig_bsp = px.box(
+                df,
+                x='Tower',
+                y='BSP',
+                color='BHK',
+                points="all"
+            )
+            fig_bsp.update_layout(
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                xaxis_title="Tower",
+                yaxis_title="BSP (₹/sq ft)"
+            )
+            st.plotly_chart(fig_bsp, use_container_width=True)
+        
         # Monthly Analysis
         st.markdown('<p class="section-title">Monthly Trends</p>', unsafe_allow_html=True)
         
@@ -396,7 +390,6 @@ if st.session_state.data_loaded:
         if selected_bhk != "All BHK":
             monthly_filtered = monthly_filtered[monthly_filtered['BHK'] == selected_bhk]
         
-        # Ensure Month No is numeric
         monthly_filtered['Month No'] = pd.to_numeric(monthly_filtered['Month No'], errors='coerce')
         monthly_filtered = monthly_filtered.dropna(subset=['Month No'])
         
@@ -418,47 +411,13 @@ if st.session_state.data_loaded:
             yaxis_title="Number of Sales"
         )
         st.plotly_chart(fig_monthly, use_container_width=True)
-
-        # BSP Analysis
-        st.markdown('<p class="section-title">Pricing Analytics</p>', unsafe_allow_html=True)
         
-        fig_bsp = px.box(
-            filtered_df,
-            x='Tower',
-            y='BSP',
-            color='BHK',
-            points="all"
-        )
-        fig_bsp.update_layout(
-            plot_bgcolor='white',
-            paper_bgcolor='white',
-            xaxis_title="Tower",
-            yaxis_title="BSP (₹/sq ft)"
-        )
-        st.plotly_chart(fig_bsp, use_container_width=True)
-
-        # Payment Plan Analysis
-        st.markdown('<p class="section-title">Payment Plans</p>', unsafe_allow_html=True)
-        
-        if 'Payment Plan' in filtered_df.columns:
-            payment_dist = filtered_df['Payment Plan'].value_counts()
-            fig_payment = px.pie(
-                values=payment_dist.values,
-                names=payment_dist.index,
-                hole=0.4
-            )
-            fig_payment.update_layout(
-                plot_bgcolor='white',
-                paper_bgcolor='white'
-            )
-            st.plotly_chart(fig_payment, use_container_width=True)
-
         # Detailed Data Table
         st.markdown('<p class="section-title">Detailed Unit Information</p>', unsafe_allow_html=True)
         
         default_columns = ['Apt No', 'BHK', 'Tower', 'Area', 'Current Status', 
                           'Total Consideration', 'Current collection', 'Customer Name']
-        available_columns = [col for col in filtered_df.columns if col in filtered_df.columns]
+        available_columns = [col for col in df.columns if col in df.columns]
         
         selected_columns = st.multiselect(
             "Select columns to display",
@@ -468,7 +427,7 @@ if st.session_state.data_loaded:
 
         if selected_columns:
             st.dataframe(
-                filtered_df[selected_columns].sort_values('Apt No'),
+                df[selected_columns].sort_values('Apt No'),
                 use_container_width=True,
                 hide_index=True
             )
@@ -480,7 +439,7 @@ if st.session_state.data_loaded:
         col1, col2 = st.columns(2)
         
         with col1:
-            csv = filtered_df.to_csv(index=False).encode('utf-8')
+            csv = df.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="Download Filtered Data as CSV",
                 data=csv,
@@ -493,12 +452,12 @@ if st.session_state.data_loaded:
                 'Metric': ['Total Units', 'Total Area (sq ft)', 'Total Consideration', 
                           'Current Collection', 'Average BSP', 'Average Unit Area'],
                 'Value': [
-                    len(filtered_df),
-                    f"{filtered_df['Area'].sum():,.0f}",
-                    f"₹{filtered_df['Total Consideration'].sum():,.0f}",
-                    f"₹{filtered_df['Current collection'].sum():,.0f}",
-                    f"₹{filtered_df['BSP'].mean():,.2f}",
-                    f"{filtered_df['Area'].mean():,.0f}"
+                    len(df),
+                    f"{df['Area'].sum():,.0f}",
+                    f"₹{df['Total Consideration'].sum():,.0f}",
+                    f"₹{df['Current collection'].sum():,.0f}",
+                    f"₹{df['BSP'].mean():,.2f}",
+                    f"{df['Area'].mean():,.0f}"
                 ]
             })
             csv_summary = summary_stats.to_csv(index=False).encode('utf-8')
@@ -517,8 +476,8 @@ if st.session_state.data_loaded:
             data_quality_issues = []
             
             # Check for missing values
-            for column in filtered_df.columns:
-                missing_count = filtered_df[column].isna().sum()
+            for column in df.columns:
+                missing_count = df[column].isna().sum()
                 if missing_count > 0:
                     data_quality_issues.append(f"Missing values in {column}: {missing_count} records")
             
@@ -526,9 +485,9 @@ if st.session_state.data_loaded:
             numeric_cols = ['Total Consideration', 'Required Collection', 'Current collection', 
                           'Area', 'BSP']
             for col in numeric_cols:
-                if col in filtered_df.columns:
-                    zero_count = (filtered_df[col] == 0).sum()
-                    neg_count = (filtered_df[col] < 0).sum()
+                if col in df.columns:
+                    zero_count = (df[col] == 0).sum()
+                    neg_count = (df[col] < 0).sum()
                     if zero_count > 0:
                         data_quality_issues.append(f"Zero values in {col}: {zero_count} records")
                     if neg_count > 0:
@@ -555,7 +514,7 @@ if st.session_state.data_loaded:
         st.stop()
 
 else:
-    # Show welcome message when no data is loaded
+    # Show welcome message
     st.markdown("""
         <div style="text-align: center; padding: 2rem;">
             <h2>Welcome to the Real Estate Analytics Dashboard</h2>
