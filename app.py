@@ -259,11 +259,13 @@ if uploaded_file is not None:
             
             # Get latest status from monthly data
             monthly_df['Month No'] = pd.to_numeric(monthly_df['Month No'], errors='coerce')
+            # Rename Unit to Apt No for consistency
+            monthly_df = monthly_df.rename(columns={'Unit': 'Apt No'})
             latest_status = (monthly_df.sort_values('Month No', ascending=False)
                            .groupby(['Apt No', 'Tower'])
                            .first()
                            .reset_index()[['Apt No', 'Tower', 'Cancellation / Transfer']])
-            
+
             # Merge latest status with collection data
             collection_df = collection_df.merge(
                 latest_status,
