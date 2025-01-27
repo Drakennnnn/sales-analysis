@@ -28,7 +28,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS with updated styling for dark theme
+# Custom CSS with dark theme
 st.markdown("""
     <style>
     .main { 
@@ -236,178 +236,6 @@ if uploaded_file is not None:
                 pd.read_excel(excel_file, 'Collection Analysis', skiprows=3),
                 'Collection Analysis'
             )
-        
-        # Unit Distribution
-        st.markdown("---")
-        st.markdown('<p class="section-title">Unit Distribution Analysis</p>', unsafe_allow_html=True)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Enhanced Tower Distribution
-            tower_dist = df[df['Tower'] != "Not Specified"]['Tower'].value_counts()
-            fig_tower = px.bar(
-                x=tower_dist.index,
-                y=tower_dist.values,
-                title="Unit Distribution by Tower",
-                labels={'x': 'Tower', 'y': 'Number of Units'},
-                color=tower_dist.values,
-                color_continuous_scale='Blues'
-            )
-            fig_tower.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                margin=dict(l=20, r=20, t=40, b=20),
-                font_color='#ffffff',
-                xaxis=dict(
-                    gridcolor='rgba(128,128,128,0.2)',
-                    linecolor='rgba(128,128,128,0.2)'
-                ),
-                yaxis=dict(
-                    gridcolor='rgba(128,128,128,0.2)',
-                    linecolor='rgba(128,128,128,0.2)'
-                ),
-                showlegend=False,
-                title_x=0.5
-            )
-            st.plotly_chart(fig_tower, use_container_width=True)
-        
-        with col2:
-            # Enhanced BHK Distribution
-            bhk_dist = df[df['BHK'] != "Not Specified"]['BHK'].value_counts()
-            fig_bhk = go.Figure(data=[go.Pie(
-                labels=bhk_dist.index,
-                values=bhk_dist.values,
-                hole=0.4,
-                marker_colors=COLORS['primary']
-            )])
-            fig_bhk.update_layout(
-                title_text="BHK Distribution",
-                title_x=0.5,
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                margin=dict(l=20, r=20, t=40, b=20),
-                font_color='#ffffff'
-            )
-            st.plotly_chart(fig_bhk, use_container_width=True)
-        
-        # Collection Analysis
-        st.markdown("---")
-        st.markdown('<p class="section-title">Collection Analysis</p>', unsafe_allow_html=True)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Enhanced Collection vs Required
-            tower_collection = df[df['Tower'] != "Not Specified"].groupby('Tower').agg({
-                'Required Collection': 'sum',
-                'Current collection': 'sum'
-            }).reset_index()
-            
-            fig_collection = go.Figure()
-            fig_collection.add_trace(go.Bar(
-                name='Required Collection',
-                x=tower_collection['Tower'],
-                y=tower_collection['Required Collection']/1e7,
-                marker_color=COLORS['primary'][0]
-            ))
-            fig_collection.add_trace(go.Bar(
-                name='Current Collection',
-                x=tower_collection['Tower'],
-                y=tower_collection['Current collection']/1e7,
-                marker_color=COLORS['primary'][1]
-            ))
-            fig_collection.update_layout(
-                barmode='group',
-                title="Collection vs Required Collection by Tower (Cr)",
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                margin=dict(l=20, r=20, t=40, b=20),
-                font_color='#ffffff',
-                xaxis=dict(
-                    gridcolor='rgba(128,128,128,0.2)',
-                    linecolor='rgba(128,128,128,0.2)'
-                ),
-                yaxis=dict(
-                    gridcolor='rgba(128,128,128,0.2)',
-                    linecolor='rgba(128,128,128,0.2)',
-                    title="Amount (Cr)"
-                ),
-                title_x=0.5
-            )
-            st.plotly_chart(fig_collection, use_container_width=True)
-        
-        with col2:
-            # Enhanced Collection Efficiency
-            collection_status = df['Collection Status'].value_counts()
-            fig_efficiency = go.Figure(data=[go.Pie(
-                labels=collection_status.index,
-                values=collection_status.values,
-                hole=0.4,
-                marker_colors=['#ff6b6b', '#ffd93d', '#6bcb77']
-            )])
-            fig_efficiency.update_layout(
-                title="Collection Status Distribution",
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                margin=dict(l=20, r=20, t=40, b=20),
-                font_color='#ffffff',
-                title_x=0.5
-            )
-            st.plotly_chart(fig_efficiency, use_container_width=True)
-        
-        # BSP Analysis
-        st.markdown("---")
-        st.markdown('<p class="section-title">Pricing Analytics</p>', unsafe_allow_html=True)
-        
-        if 'BSP' in df.columns:
-            fig_bsp = px.box(
-                df[df['Tower'] != "Not Specified"],
-                x='Tower',
-                y='BSP',
-                color='BHK',
-                points="all",
-                title="BSP Distribution by Tower and BHK Type"
-            )
-            fig_bsp.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                margin=dict(l=20, r=20, t=40, b=20),
-                font_color='#ffffff',
-                xaxis=dict(
-                    gridcolor='rgba(128,128,128,0.2)',
-                    linecolor='rgba(128,128,128,0.2)'
-                ),
-                yaxis=dict(
-                    gridcolor='rgba(128,128,128,0.2)',
-                    linecolor='rgba(128,128,128,0.2)',
-                    title="BSP (₹/sq ft)"
-                ),
-                title_x=0.5,
-                showlegend=True
-            )
-            st.plotly_chart(fig_bsp, use_container_width=True)
-        
-        # Monthly Analysis with Transfer/Cancel Focus
-        st.markdown("---")
-        st.markdown('<p class="section-title">Monthly Trends</p>', unsafe_allow_html=True)
-        
-        monthly_df = st.session_state.monthly_df
-        monthly_filtered = monthly_df.copy()
-        
-        if selected_tower != "All Towers":
-            monthly_filtered = monthly_filtered[monthly_filtered['Tower'] == selected_tower]
-        if selected_bhk != "All BHK":
-            monthly_filtered = monthly_filtered[monthly_filtered['BHK'] == selected_bhk]
-        
-        # Convert Month No to numeric and handle any conversion errors
-        monthly_filtered['Month No'] = pd.to_numeric(monthly_filtered['Month No'], errors='coerce')
-        monthly_filtered = monthly_filtered.dropna(subset=['Month No'])
-        
-        # Create separate trends for sales, transfers, and cancellations
-        monthly_stats = monthly_filtered.groupby(
-            ['Month No', 'Cancellation / Transfer']
-        ).size().reset_index(name='Count')
             sales_df = process_dataframe(
                 pd.read_excel(excel_file, 'Sales Analysis', skiprows=3),
                 'Sales Analysis'
@@ -532,8 +360,18 @@ if st.session_state.data_loaded:
                 color_continuous_scale='Blues'
             )
             fig_tower.update_layout(
-                plot_bgcolor=COLORS['background'],
-                paper_bgcolor=COLORS['background'],
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                margin=dict(l=20, r=20, t=40, b=20),
+                font_color='#ffffff',
+                xaxis=dict(
+                    gridcolor='rgba(128,128,128,0.2)',
+                    linecolor='rgba(128,128,128,0.2)'
+                ),
+                yaxis=dict(
+                    gridcolor='rgba(128,128,128,0.2)',
+                    linecolor='rgba(128,128,128,0.2)'
+                ),
                 showlegend=False,
                 title_x=0.5
             )
@@ -551,8 +389,10 @@ if st.session_state.data_loaded:
             fig_bhk.update_layout(
                 title_text="BHK Distribution",
                 title_x=0.5,
-                plot_bgcolor=COLORS['background'],
-                paper_bgcolor=COLORS['background']
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                margin=dict(l=20, r=20, t=40, b=20),
+                font_color='#ffffff'
             )
             st.plotly_chart(fig_bhk, use_container_width=True)
         
