@@ -165,7 +165,7 @@ def clean_numeric_columns(df, numeric_columns):
     """Clean numeric columns while safely handling datetime columns"""
     for col in df.columns:
         # Skip datetime columns
-        if pd.api.types.is_datetime64_any_dtype(df[col]):
+        if pd.api.types.is_datetime64_any_dtype(df[col]) or isinstance(col, datetime):
             continue
         # Process numeric columns
         if isinstance(col, str) and any(num_col.lower() in col.lower() for num_col in numeric_columns):
@@ -257,6 +257,22 @@ if uploaded_file is not None:
                 'Sales Summary'
             )
             
+            # Get latest status from monthly data
+            monthly_df['Month No'] = pd.to_numeric(monthly_df['Month No'], errors='coerce')
+            latest_status = (monthly_df.sort_values('Month No', ascending=False)
+                           .groupby(['Apt No', 'Tower'])
+                           .first()
+                           .reset_index()[['Apt No', 'Tower', 'Cancellation / Transfer']])
+            
+            # Merge latest status with collection data
+            collection_df = collection_df.merge(
+                latest_status,
+                on=['Apt No', 'Tower'],
+                how='left'
+            )
+            # Fill any missing status with 'NEW SALE' as default
+            collection_df['Cancellation / Transfer'] = collection_df['Cancellation / Transfer'].fillna('NEW SALE')
+            
             # Store in session state
             st.session_state.data_loaded = True
             st.session_state.collection_df = collection_df
@@ -313,7 +329,7 @@ if st.session_state.data_loaded:
             monthly_filtered = monthly_filtered[monthly_filtered['BHK'] == selected_bhk]
         if status_filter:
             monthly_filtered = monthly_filtered[monthly_filtered['Cancellation / Transfer'].isin(status_filter)]
-
+        
         # Apply filters to collection data
         df = collection_df.copy()
         if selected_tower != "All Towers":
@@ -325,6 +341,7 @@ if st.session_state.data_loaded:
         if status_filter:
             df = df[df['Cancellation / Transfer'].isin(status_filter)]
             
+        # Metrics Row
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -387,7 +404,11 @@ if st.session_state.data_loaded:
                 xaxis=dict(
                     gridcolor='rgba(128,128,128,0.2)',
                     linecolor='rgba(128,128,128,0.2)'
-                    ),
+                ),
+                yaxis=dict(
+                    gridcolor='rgba(128,128,128,0.2)',
+                    linecolor='rgba(128,128,128,0.2)'
+                ),
                 showlegend=False,
                 title_x=0.5
             )
@@ -491,9 +512,8 @@ if st.session_state.data_loaded:
         st.markdown("---")
         st.markdown('<p class="section-title">Monthly Trends</p>', unsafe_allow_html=True)
         
-        # Convert Month No to numeric and handle any conversion errors
-        monthly_filtered['Month No'] = pd.to_numeric(monthly_filtered['Month No'], errors='coerce')
-        monthly_filtered = monthly_filtered.dropna(subset=['Month No'])
+        # Sort monthly_filtered by Month No for proper trend display
+        monthly_filtered = monthly_filtered.sort_values('Month No')
         
         # Create separate trends for sales, transfers, and cancellations
         monthly_stats = monthly_filtered.groupby(['Month No', 'Cancellation / Transfer']).size().reset_index(name='Count')
@@ -512,7 +532,11 @@ if st.session_state.data_loaded:
             title_x=0.5,
             xaxis_title="Month Number",
             yaxis_title="Number of Transactions",
-            showlegend=True
+            showlegend=True,
+            xaxis=dict(
+                tickmode='linear',
+                dtick=1  # Show every month number
+            )
         )
         st.plotly_chart(fig_monthly, use_container_width=True)
         
@@ -637,4 +661,3 @@ else:
             </ul>
         </div>
     """, unsafe_allow_html=True)
-            
