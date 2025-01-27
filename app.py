@@ -1,115 +1,593 @@
-
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
+import numpy as np
+import re
+import io
+from PIL import Image
+import base64
 
-st.set_page_config(layout="wide", page_title="Real Estate Analytics Dashboard")
+# Set page configuration
+st.set_page_config(
+    page_title="Real Estate Analytics Dashboard",
+    page_icon="🏢",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# Load data
-@st.cache_data
-def load_data():
-    excel_file = 'Project 1_Sales Review_10012025.xlsx'
-    dfs = {
-        'collection': pd.read_excel(excel_file, sheet_name='Collection Analysis'),
-        'sales': pd.read_excel(excel_file, sheet_name='Sales Analysis'),
-        'monthly': pd.read_excel(excel_file, sheet_name='Monthly Data'),
-        'mis': pd.read_excel(excel_file, sheet_name='Monthly MIS Check'),
-        'summary': pd.read_excel(excel_file, sheet_name='Sales Summary')
+# Custom CSS for enhanced UI
+st.markdown("""
+    <style>
+    .main {
+        padding: 0rem 1rem;
     }
-    return dfs
+    .stSelectbox {
+        margin-bottom: 1rem;
+    }
+    .plot-container {
+        margin-bottom: 2rem;
+        background-color: white;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .metric-container {
+        background-color: white;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 1rem;
+    }
+    .stAlert {
+        padding: 1rem;
+        margin-bottom: 1rem;
+        border-radius: 0.5rem;
+    }
+    .css-1d391kg {
+        padding: 1rem;
+    }
+    .stProgress {
+        margin-bottom: 1rem;
+    }
+    .custom-metric {
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .section-title {
+        font-size: 1.5rem;
+        font-weight: bold;
+        margin-bottom: 1rem;
+        color: #1f77b4;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-# Initialize
+# Data cleaning and normalization functions
+def clean_numeric(value):
+    """Clean numeric values, handling various formats and errors"""
+    if pd.isna(value):
+        return 0
+    if isinstance(value, str):
+        clean_str = re.sub(r'[^\d.-]', '', value)
+        try:
+            return float(clean_str)
+        except ValueError:
+            return 0
+    return float(value)
+
+def normalize_bhk(bhk):
+    """Enhanced BHK normalization"""
+    if pd.isna(bhk):
+        return "Not Specified"
+    
+    bhk = str(bhk).upper().strip()
+    bhk = re.sub(r'\s+', ' ', bhk)
+    
+    numeric_part = re.search(r'\d+', bhk)
+    if numeric_part:
+        number = numeric_part.group()
+        return f"{number}-BHK"
+    
+    if bhk == 'SHOP' or 'SHOP' in bhk:
+        return 'SHOP'
+    
+    return "Not Specified"
+
+def normalize_tower(tower):
+    """Enhanced tower normalization"""
+    if pd.isna(tower):
+        return "Not Specified"
+    
+    tower = str(tower).upper().strip()
+    tower = re.sub(r'\s+', ' ', tower)
+    
+    if 'RETAIL' in tower:
+        return 'RETAIL'
+    
+    if tower.startswith('CA'):
+        match = re.search(r'(\d+)', tower)
+        if match:
+            number = match.group(1).zfill(2)
+            return f"CA {number}"
+    
+    return tower
+
+def clean_status(status):
+    """Normalize status values"""
+    if pd.isna(status):
+        return "Not Specified"
+    
+    status = str(status).upper().strip()
+    status_map = {
+        'SOLD': 'SOLD',
+        'AVAILABLE': 'AVAILABLE',
+        'CANCEL': 'CANCELLED',
+        'CANCELLED': 'CANCELLED',
+        'BLOCKED': 'BLOCKED',
+        'NA': 'NOT SPECIFIED',
+        '': 'NOT SPECIFIED'
+    }
+    
+    return status_map.get(status, status)
+
+# Session state initialization
+if 'data_loaded' not in st.session_state:
+    st.session_state.data_loaded = False
+
+# File upload section
 st.title("Real Estate Analytics Dashboard")
-dfs = load_data()
+st.markdown("---")
 
-# Sidebar filters
-st.sidebar.header("Filters")
-sale_type = st.sidebar.multiselect("Sale Type", ["Old", "New"], default=["Old", "New"])
+uploaded_file = st.file_uploader("Upload Excel File", type=['xlsx', 'xls'])
 
-# Main layout using columns
-col1, col2 = st.columns(2)
+if uploaded_file is not None:
+    try:
+        with st.spinner('Processing data...'):
+            # Read all sheets
+            excel_file = pd.ExcelFile(uploaded_file)
+            
+            # Initialize DataFrames
+            collection_df = pd.DataFrame()
+            sales_df = pd.DataFrame()
+            monthly_df = pd.DataFrame()
+            summary_df = pd.DataFrame()
+            
+            required_sheets = ['Collection Analysis', 'Sales Analysis', 'Monthly Data', 'Sales Summary']
+            
+            # Check if required sheets exist
+            missing_sheets = [sheet for sheet in required_sheets if sheet not in excel_file.sheet_names]
+            if missing_sheets:
+                st.error(f"Missing required sheets: {', '.join(missing_sheets)}")
+                st.stop()
+            
+            # Read and clean Collection Analysis
+            collection_df = pd.read_excel(excel_file, 'Collection Analysis', skiprows=3)
+            collection_df = collection_df.replace([np.inf, -np.inf], np.nan)
+            
+            # Clean numeric columns
+            numeric_columns = ['Total Consideration', 'Required Collection', 'Current collection', 'Area', 'BSP']
+            for col in numeric_columns:
+                if col in collection_df.columns:
+                    collection_df[col] = collection_df[col].apply(clean_numeric)
+            
+            # Normalize categorical columns
+            collection_df['BHK'] = collection_df['BHK'].apply(normalize_bhk)
+            collection_df['Tower'] = collection_df['Tower'].apply(normalize_tower)
+            collection_df['Current Status'] = collection_df['Current Status'].apply(clean_status)
+            
+            # Read other sheets
+            sales_df = pd.read_excel(excel_file, 'Sales Analysis', skiprows=3)
+            monthly_df = pd.read_excel(excel_file, 'Monthly Data', skiprows=2)
+            summary_df = pd.read_excel(excel_file, 'Sales Summary', skiprows=2)
+            
+            st.session_state.data_loaded = True
+            st.session_state.collection_df = collection_df
+            st.session_state.sales_df = sales_df
+            st.session_state.monthly_df = monthly_df
+            st.session_state.summary_df = summary_df
+            
+            st.success("Data loaded successfully!")
+            
+    except Exception as e:
+        st.error(f"Error processing file: {str(e)}")
+        st.stop()
 
-with col1:
-    st.subheader("Collection Overview")
-    # Collection metrics
-    collection_data = dfs['collection']
-    total_collection = collection_data.select_dtypes(include=[np.number]).sum().sum()
-    st.metric("Total Collection (₹ Cr)", f"{total_collection:.2f}")
+if st.session_state.data_loaded:
+    # Sidebar filters
+    st.sidebar.title("Filters")
     
-    # Collection Trend
-    fig_collection = px.line(collection_data, 
-                           title="Collection Trend",
-                           template="plotly_white")
-    st.plotly_chart(fig_collection, use_container_width=True)
-
-with col2:
-    st.subheader("Sales Performance")
-    # Sales metrics
-    sales_data = dfs['sales']
-    total_sales = sales_data.select_dtypes(include=[np.number]).sum().sum()
-    st.metric("Total Sales (₹ Cr)", f"{total_sales:.2f}")
+    collection_df = st.session_state.collection_df
     
-    # Sales by Type
-    fig_sales = px.bar(sales_data,
-                      title="Sales by Type",
-                      template="plotly_white")
-    st.plotly_chart(fig_sales, use_container_width=True)
+    # Get unique values for filters
+    towers = sorted([t for t in collection_df['Tower'].unique() if t != "Not Specified"])
+    bhk_types = sorted([b for b in collection_df['BHK'].unique() if b != "Not Specified"])
+    
+    selected_tower = st.sidebar.selectbox("Select Tower", ["All Towers"] + towers)
+    selected_bhk = st.sidebar.selectbox("Select BHK Type", ["All BHK"] + bhk_types)
+    
+    # Filter data
+    filtered_df = collection_df.copy()
+    if selected_tower != "All Towers":
+        filtered_df = filtered_df[filtered_df['Tower'] == selected_tower]
+    if selected_bhk != "All BHK":
+        filtered_df = filtered_df[filtered_df['BHK'] == selected_bhk]
+    
+    # Main dashboard content
+    col1, col2, col3, col4 = st.columns(4)
+    
+    # Key metrics with enhanced styling
+    with col1:
+        st.markdown("""
+            <div class="custom-metric">
+                <h3>Total Units</h3>
+                <h2 style="color: #1f77b4;">{}</h2>
+            </div>
+        """.format(len(filtered_df)), unsafe_allow_html=True)
+    
+    with col2:
+        total_consideration = filtered_df['Total Consideration'].sum()
+        st.markdown("""
+            <div class="custom-metric">
+                <h3>Total Consideration</h3>
+                <h2 style="color: #1f77b4;">₹{:,.0f}</h2>
+            </div>
+        """.format(total_consideration), unsafe_allow_html=True)
+    
+    with col3:
+        current_collection = filtered_df['Current collection'].sum()
+        st.markdown("""
+            <div class="custom-metric">
+                <h3>Current Collection</h3>
+                <h2 style="color: #1f77b4;">₹{:,.0f}</h2>
+            </div>
+        """.format(current_collection), unsafe_allow_html=True)
+    
+    with col4:
+        total_area = filtered_df['Area'].sum()
+        st.markdown("""
+            <div class="custom-metric">
+                <h3>Total Area (sq ft)</h3>
+                <h2 style="color: #1f77b4;">{:,.0f}</h2>
+            </div>
+        """.format(total_area), unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Charts section
+    st.markdown('<p class="section-title">Sales Analytics</p>', unsafe_allow_html=True)
+    
+    # Row 1: Distribution Charts
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Unit Distribution by Tower")
+        tower_dist = filtered_df['Tower'].value_counts()
+        fig_tower = px.bar(
+            x=tower_dist.index,
+            y=tower_dist.values,
+            labels={'x': 'Tower', 'y': 'Number of Units'},
+            color=tower_dist.values,
+            color_continuous_scale='Viridis'
+        )
+        fig_tower.update_layout(
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            showlegend=False
+        )
+        st.plotly_chart(fig_tower, use_container_width=True)
+    
+    with col2:
+        st.subheader("BHK Distribution")
+        bhk_dist = filtered_df['BHK'].value_counts()
+        fig_bhk = px.pie(
+            values=bhk_dist.values,
+            names=bhk_dist.index,
+            hole=0.4,
+            color_discrete_sequence=px.colors.qualitative.Set3
+        )
+        fig_bhk.update_layout(
+            plot_bgcolor='white',
+            paper_bgcolor='white'
+        )
+        st.plotly_chart(fig_bhk, use_container_width=True)
+    
+    # Row 2: Financial Analysis
+    st.markdown('<p class="section-title">Financial Analytics</p>', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Collection vs Required Collection by Tower")
+        tower_collection = filtered_df.groupby('Tower').agg({
+            'Required Collection': 'sum',
+            'Current collection': 'sum'
+        }).reset_index()
+        
+        fig_collection = go.Figure()
+        fig_collection.add_trace(go.Bar(
+            name='Required Collection',
+            x=tower_collection['Tower'],
+            y=tower_collection['Required Collection'],
+            marker_color='#1f77b4'
+        ))
+        fig_collection.add_trace(go.Bar(
+            name='Current Collection',
+            x=tower_collection['Tower'],
+            y=tower_collection['Current collection'],
+            marker_color='#2ca02c'
+        ))
+        fig_collection.update_layout(
+            barmode='group',
+            plot_bgcolor='white',
+            paper_bgcolor='white'
+        )
+        st.plotly_chart(fig_collection, use_container_width=True)
+    
+    with col2:
+        st.subheader("Area Distribution by BHK")
+        area_by_bhk = filtered_df.groupby('BHK')['Area'].sum().reset_index()
+        fig_area = px.bar(
+            area_by_bhk,
+            x='BHK',
+            y='Area',
+            color='Area',
+            color_continuous_scale='Viridis'
+        )
+        fig_area.update_layout(
+            plot_bgcolor='white',
+            paper_bgcolor='white'
+        )
+        st.plotly_chart(fig_area, use_container_width=True)
+    
+    # Row 3: Status Analysis
+    st.markdown('<p class="section-title">Status Analytics</p>', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Unit Status Overview")
+        status_dist = filtered_df['Current Status'].value_counts()
+        fig_status = px.pie(
+            values=status_dist.values,
+            names=status_dist.index,
+            hole=0.4,
+            color_discrete_sequence=px.colors.qualitative.Set1
+        )
+        fig_status.update_layout(
+            plot_bgcolor='white',
+            paper_bgcolor='white'
+        )
+        st.plotly_chart(fig_status, use_container_width=True)
+    
+    with col2:
+        st.subheader("Collection Shortfall Analysis")
+        filtered_df['Collection Shortfall'] = filtered_df['Required Collection'] - filtered_df['Current collection']
+        fig_shortfall = px.scatter(
+            filtered_df,
+            x='Total Consideration',
+            y='Collection Shortfall',
+            color='BHK',
+            size='Area',
+            hover_data=['Apt No', 'Customer Name'],
+            color_discrete_sequence=px.colors.qualitative.Set2
+        )
+        fig_shortfall.update_layout(
+            plot_bgcolor='white',
+            paper_bgcolor='white'
+        )
+        st.plotly_chart(fig_shortfall, use_container_width=True)
+    
+    # Monthly Analysis
+    st.markdown('<p class="section-title">Monthly Trends</p>', unsafe_allow_html=True)
+    
+    monthly_df = st.session_state.monthly_df
+    monthly_filtered = monthly_df.copy()
+    if selected_tower != "All Towers":
+        monthly_filtered = monthly_filtered[monthly_filtered['Tower'] == selected_tower]
+    if selected_bhk != "All BHK":
+        monthly_filtered = monthly_filtered[monthly_filtered['BHK'] == selected_bhk]
+    
+    monthly_agg = monthly_filtered.groupby(['Month No', 'Old sale / New sale']).size().reset_index(name='Count')
+    fig_monthly = px.line(
+        monthly_agg,
+        x='Month No',
+        y='Count',
+        color='Old sale / New sale',
+        markers=True,
+        line_shape='spline'
+    )
 
-# Monthly Analysis
-st.header("Monthly Performance")
-monthly_data = dfs['monthly']
-col3, col4, col5 = st.columns(3)
+fig_monthly.update_layout(
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        xaxis_title="Month Number",
+        yaxis_title="Number of Sales"
+    )
+    st.plotly_chart(fig_monthly, use_container_width=True)
 
-with col3:
-    # Monthly Collections
-    fig_monthly_collection = px.area(monthly_data,
-                                   title="Monthly Collections",
-                                   template="plotly_white")
-    st.plotly_chart(fig_monthly_collection, use_container_width=True)
+    # BSP Analysis
+    st.markdown('<p class="section-title">Pricing Analytics</p>', unsafe_allow_html=True)
+    
+    fig_bsp = px.box(
+        filtered_df,
+        x='Tower',
+        y='BSP',
+        color='BHK',
+        points="all",
+        color_discrete_sequence=px.colors.qualitative.Set3
+    )
+    fig_bsp.update_layout(
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        xaxis_title="Tower",
+        yaxis_title="BSP (₹/sq ft)"
+    )
+    st.plotly_chart(fig_bsp, use_container_width=True)
 
-with col4:
-    # Monthly Sales
-    fig_monthly_sales = px.bar(monthly_data,
-                              title="Monthly Sales",
-                              template="plotly_white")
-    st.plotly_chart(fig_monthly_sales, use_container_width=True)
+    # Payment Plan Analysis
+    st.markdown('<p class="section-title">Payment Plans</p>', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Payment Plan Distribution")
+        payment_dist = filtered_df['Payment Plan'].value_counts()
+        fig_payment = px.pie(
+            values=payment_dist.values,
+            names=payment_dist.index,
+            hole=0.4,
+            color_discrete_sequence=px.colors.qualitative.Pastel
+        )
+        fig_payment.update_layout(
+            plot_bgcolor='white',
+            paper_bgcolor='white'
+        )
+        st.plotly_chart(fig_payment, use_container_width=True)
+    
+    with col2:
+        st.subheader("Collection Efficiency")
+        filtered_df['Collection Percentage'] = (filtered_df['Current collection'] / 
+                                              filtered_df['Required Collection'] * 100)
+        fig_efficiency = px.histogram(
+            filtered_df,
+            x='Collection Percentage',
+            color='BHK',
+            nbins=20,
+            opacity=0.7
+        )
+        fig_efficiency.update_layout(
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            xaxis_title="Collection Percentage",
+            yaxis_title="Number of Units"
+        )
+        st.plotly_chart(fig_efficiency, use_container_width=True)
 
-with col5:
-    # Collection Efficiency
-    fig_efficiency = go.Figure()
-    fig_efficiency.add_trace(go.Indicator(
-        mode="gauge+number",
-        title={'text': "Collection Efficiency"},
-        value=85,
-        gauge={'axis': {'range': [0, 100]}}
-    ))
-    st.plotly_chart(fig_efficiency, use_container_width=True)
+    # Detailed Data Table
+    st.markdown('<p class="section-title">Detailed Unit Information</p>', unsafe_allow_html=True)
+    
+    # Add column selector
+    available_columns = filtered_df.columns.tolist()
+    default_columns = ['Apt No', 'BHK', 'Tower', 'Area', 'Current Status', 
+                      'Total Consideration', 'Current collection', 'Customer Name']
+    selected_columns = st.multiselect(
+        "Select columns to display",
+        available_columns,
+        default=default_columns
+    )
 
-# Detailed Analysis Section
-st.header("Detailed Analysis")
-tabs = st.tabs(["BHK-wise Analysis", "Tower Analysis", "Payment Plans"])
+    # Show filtered dataframe with selected columns
+    if selected_columns:
+        st.dataframe(
+            filtered_df[selected_columns].sort_values('Apt No'),
+            use_container_width=True,
+            hide_index=True
+        )
 
-with tabs[0]:
-    # BHK-wise Analysis
-    st.subheader("BHK Distribution")
-    # Add BHK distribution visualization here
+    # Download section
+    st.markdown("---")
+    st.markdown('<p class="section-title">Export Data</p>', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Export filtered data
+        csv = filtered_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="Download Filtered Data as CSV",
+            data=csv,
+            file_name=f"real_estate_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+        )
+    
+    with col2:
+        # Export summary statistics
+        summary_stats = pd.DataFrame({
+            'Metric': ['Total Units', 'Total Area (sq ft)', 'Total Consideration', 'Current Collection',
+                      'Average BSP', 'Average Unit Area'],
+            'Value': [
+                len(filtered_df),
+                f"{filtered_df['Area'].sum():,.0f}",
+                f"₹{filtered_df['Total Consideration'].sum():,.0f}",
+                f"₹{filtered_df['Current collection'].sum():,.0f}",
+                f"₹{filtered_df['BSP'].mean():,.2f}",
+                f"{filtered_df['Area'].mean():,.0f}"
+            ]
+        })
+        csv_summary = summary_stats.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="Download Summary Statistics",
+            data=csv_summary,
+            file_name=f"summary_stats_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv",
+        )
 
-with tabs[1]:
-    # Tower Analysis
-    st.subheader("Tower-wise Performance")
-    # Add tower-wise analysis here
+    # Data Quality Section
+    st.markdown("---")
+    st.markdown('<p class="section-title">Data Quality Report</p>', unsafe_allow_html=True)
+    
+    with st.expander("View Data Quality Issues"):
+        data_quality_issues = []
+        
+        # Check for missing values
+        for column in filtered_df.columns:
+            missing_count = filtered_df[column].isna().sum()
+            if missing_count > 0:
+                data_quality_issues.append(f"Missing values in {column}: {missing_count} records")
+        
+        # Check for zero or negative values in numeric columns
+        numeric_cols = ['Total Consideration', 'Required Collection', 'Current collection', 'Area', 'BSP']
+        for col in numeric_cols:
+            if col in filtered_df.columns:
+                zero_count = (filtered_df[col] == 0).sum()
+                neg_count = (filtered_df[col] < 0).sum()
+                if zero_count > 0:
+                    data_quality_issues.append(f"Zero values in {col}: {zero_count} records")
+                if neg_count > 0:
+                    data_quality_issues.append(f"Negative values in {col}: {neg_count} records")
+        
+        if data_quality_issues:
+            for issue in data_quality_issues:
+                st.warning(issue)
+        else:
+            st.success("No major data quality issues found!")
 
-with tabs[2]:
-    # Payment Plans Analysis
-    st.subheader("Payment Plan Distribution")
-    # Add payment plan analysis here
+    # Footer
+    st.markdown("---")
+    st.markdown(f"*Dashboard last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
+    
+    # Add cache clearing button in sidebar
+    if st.sidebar.button("Clear Cache and Reset"):
+        st.cache_data.clear()
+        st.session_state.data_loaded = False
+        st.experimental_rerun()
 
-# Download Section
-st.sidebar.markdown("---")
-st.sidebar.header("Download Reports")
-if st.sidebar.button("Download Full Report"):
-    # Add download functionality here
-    pass
+else:
+    # Show welcome message when no data is loaded
+    st.markdown("""
+        <div style="text-align: center; padding: 2rem;">
+            <h2>Welcome to the Real Estate Analytics Dashboard</h2>
+            <p>Please upload an Excel file to begin analysis.</p>
+            <p>The file should contain the following sheets:</p>
+            <ul style="list-style-type: none;">
+                <li>Collection Analysis</li>
+                <li>Sales Analysis</li>
+                <li>Monthly Data</li>
+                <li>Sales Summary</li>
+            </ul>
+        </div>
+    """, unsafe_allow_html=True)
+
+# Error handling for the entire app
+def handle_error(func):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            st.error(f"An error occurred: {str(e)}")
+            return None
+    return wrapper
