@@ -91,8 +91,6 @@ def safe_string_handling(value):
         return ""
     if isinstance(value, (int, float)):
         return str(value)
-    if isinstance(value, datetime):
-        return value.strftime('%Y-%m-%d')
     try:
         return str(value).strip()
     except:
@@ -172,10 +170,12 @@ def process_dataframe(df, sheet_name):
         # Basic cleaning
         df = df.replace([np.inf, -np.inf], np.nan)
         
-        # Convert datetime columns to string format first
-        date_columns = df.select_dtypes(include=['datetime64']).columns
-        for col in date_columns:
-            df[col] = df[col].dt.strftime('%Y-%m-%d')
+        # Skip datetime handling for Sales Analysis sheet
+        if sheet_name != 'Sales Analysis':
+            # Convert datetime columns to string format first
+            date_columns = df.select_dtypes(include=['datetime64']).columns
+            for col in date_columns:
+                df[col] = df[col].dt.strftime('%Y-%m-%d')
         
         # Normalize string columns
         if 'BHK' in df.columns:
@@ -349,14 +349,16 @@ if st.session_state.data_loaded:
         col1, col2 = st.columns(2)
         
         with col1:
-            # Enhanced Tower Distribution
-            tower_dist = df[df['Tower'] != "Not Specified"]['Tower'].value_counts()
+            # Modified Tower Distribution to handle multiple statuses
+            tower_status_dist = df[df['Tower'] != "Not Specified"].groupby('Tower').size().reset_index()
+            tower_status_dist.columns = ['Tower', 'Count']
+            
             fig_tower = px.bar(
-                x=tower_dist.index,
-                y=tower_dist.values,
+                tower_status_dist,
+                x='Tower',
+                y='Count',
                 title="Unit Distribution by Tower",
-                labels={'x': 'Tower', 'y': 'Number of Units'},
-                color=tower_dist.values,
+                color='Count',
                 color_continuous_scale='Blues'
             )
             fig_tower.update_layout(
