@@ -16,8 +16,8 @@ warnings.filterwarnings('ignore')
 COLORS = {
     'primary': ['#1f77b4', '#2ca02c', '#ff7f0e', '#d62728', '#9467bd', '#8c564b'],
     'sequential': px.colors.sequential.Blues,
-    'background': '#ffffff',
-    'text': '#2c3e50'
+    'background': 'rgba(0,0,0,0)',
+    'text': '#ffffff'
 }
 
 # Set page configuration
@@ -28,49 +28,59 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS with updated styling
+# Custom CSS with updated styling for dark theme
 st.markdown("""
     <style>
-    .main { padding: 0rem 1rem; }
+    .main { 
+        padding: 0rem 1rem;
+        color: white;
+    }
     .stSelectbox { margin-bottom: 1rem; }
     .plot-container {
         margin-bottom: 2rem;
-        background-color: white;
+        background-color: rgba(0,0,0,0) !important;
         padding: 1rem;
         border-radius: 0.5rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     .custom-metric {
-        background-color: #f8f9fa;
+        background-color: rgba(255,255,255,0.1);
         padding: 1rem;
         border-radius: 0.5rem;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
     .section-title {
         font-size: 1.5rem;
         font-weight: bold;
         margin-bottom: 1rem;
-        color: #2c3e50;
+        color: #ffffff;
     }
     .dataframe {
         font-size: 12px;
+        color: white !important;
     }
     .stDataFrame {
-        background-color: #ffffff;
+        background-color: rgba(0,0,0,0) !important;
         border-radius: 0.5rem;
         padding: 1rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     div[data-testid="stMetricValue"] {
         font-size: 2rem;
-        color: #2c3e50;
+        color: white !important;
     }
     .stAlert {
         border-radius: 0.5rem;
     }
     .plot-container > div {
         border-radius: 0.5rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    div.css-12w0qpk.e1tzin5v1 {
+        background-color: rgba(255,255,255,0.1);
+        border-radius: 0.5rem;
+        padding: 1rem;
+    }
+    div.css-1r6slb0.e1tzin5v2 {
+        background-color: rgba(255,255,255,0.1);
+        border-radius: 0.5rem;
+        padding: 1rem;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -162,6 +172,11 @@ def process_dataframe(df, sheet_name):
         # Basic cleaning
         df = df.replace([np.inf, -np.inf], np.nan)
         
+        # Convert datetime columns to string format first
+        date_columns = df.select_dtypes(include=['datetime64']).columns
+        for col in date_columns:
+            df[col] = df[col].dt.strftime('%Y-%m-%d')
+        
         # Normalize string columns
         if 'BHK' in df.columns:
             df['BHK'] = df['BHK'].apply(normalize_bhk)
@@ -221,6 +236,178 @@ if uploaded_file is not None:
                 pd.read_excel(excel_file, 'Collection Analysis', skiprows=3),
                 'Collection Analysis'
             )
+        
+        # Unit Distribution
+        st.markdown("---")
+        st.markdown('<p class="section-title">Unit Distribution Analysis</p>', unsafe_allow_html=True)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Enhanced Tower Distribution
+            tower_dist = df[df['Tower'] != "Not Specified"]['Tower'].value_counts()
+            fig_tower = px.bar(
+                x=tower_dist.index,
+                y=tower_dist.values,
+                title="Unit Distribution by Tower",
+                labels={'x': 'Tower', 'y': 'Number of Units'},
+                color=tower_dist.values,
+                color_continuous_scale='Blues'
+            )
+            fig_tower.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                margin=dict(l=20, r=20, t=40, b=20),
+                font_color='#ffffff',
+                xaxis=dict(
+                    gridcolor='rgba(128,128,128,0.2)',
+                    linecolor='rgba(128,128,128,0.2)'
+                ),
+                yaxis=dict(
+                    gridcolor='rgba(128,128,128,0.2)',
+                    linecolor='rgba(128,128,128,0.2)'
+                ),
+                showlegend=False,
+                title_x=0.5
+            )
+            st.plotly_chart(fig_tower, use_container_width=True)
+        
+        with col2:
+            # Enhanced BHK Distribution
+            bhk_dist = df[df['BHK'] != "Not Specified"]['BHK'].value_counts()
+            fig_bhk = go.Figure(data=[go.Pie(
+                labels=bhk_dist.index,
+                values=bhk_dist.values,
+                hole=0.4,
+                marker_colors=COLORS['primary']
+            )])
+            fig_bhk.update_layout(
+                title_text="BHK Distribution",
+                title_x=0.5,
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                margin=dict(l=20, r=20, t=40, b=20),
+                font_color='#ffffff'
+            )
+            st.plotly_chart(fig_bhk, use_container_width=True)
+        
+        # Collection Analysis
+        st.markdown("---")
+        st.markdown('<p class="section-title">Collection Analysis</p>', unsafe_allow_html=True)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Enhanced Collection vs Required
+            tower_collection = df[df['Tower'] != "Not Specified"].groupby('Tower').agg({
+                'Required Collection': 'sum',
+                'Current collection': 'sum'
+            }).reset_index()
+            
+            fig_collection = go.Figure()
+            fig_collection.add_trace(go.Bar(
+                name='Required Collection',
+                x=tower_collection['Tower'],
+                y=tower_collection['Required Collection']/1e7,
+                marker_color=COLORS['primary'][0]
+            ))
+            fig_collection.add_trace(go.Bar(
+                name='Current Collection',
+                x=tower_collection['Tower'],
+                y=tower_collection['Current collection']/1e7,
+                marker_color=COLORS['primary'][1]
+            ))
+            fig_collection.update_layout(
+                barmode='group',
+                title="Collection vs Required Collection by Tower (Cr)",
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                margin=dict(l=20, r=20, t=40, b=20),
+                font_color='#ffffff',
+                xaxis=dict(
+                    gridcolor='rgba(128,128,128,0.2)',
+                    linecolor='rgba(128,128,128,0.2)'
+                ),
+                yaxis=dict(
+                    gridcolor='rgba(128,128,128,0.2)',
+                    linecolor='rgba(128,128,128,0.2)',
+                    title="Amount (Cr)"
+                ),
+                title_x=0.5
+            )
+            st.plotly_chart(fig_collection, use_container_width=True)
+        
+        with col2:
+            # Enhanced Collection Efficiency
+            collection_status = df['Collection Status'].value_counts()
+            fig_efficiency = go.Figure(data=[go.Pie(
+                labels=collection_status.index,
+                values=collection_status.values,
+                hole=0.4,
+                marker_colors=['#ff6b6b', '#ffd93d', '#6bcb77']
+            )])
+            fig_efficiency.update_layout(
+                title="Collection Status Distribution",
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                margin=dict(l=20, r=20, t=40, b=20),
+                font_color='#ffffff',
+                title_x=0.5
+            )
+            st.plotly_chart(fig_efficiency, use_container_width=True)
+        
+        # BSP Analysis
+        st.markdown("---")
+        st.markdown('<p class="section-title">Pricing Analytics</p>', unsafe_allow_html=True)
+        
+        if 'BSP' in df.columns:
+            fig_bsp = px.box(
+                df[df['Tower'] != "Not Specified"],
+                x='Tower',
+                y='BSP',
+                color='BHK',
+                points="all",
+                title="BSP Distribution by Tower and BHK Type"
+            )
+            fig_bsp.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                margin=dict(l=20, r=20, t=40, b=20),
+                font_color='#ffffff',
+                xaxis=dict(
+                    gridcolor='rgba(128,128,128,0.2)',
+                    linecolor='rgba(128,128,128,0.2)'
+                ),
+                yaxis=dict(
+                    gridcolor='rgba(128,128,128,0.2)',
+                    linecolor='rgba(128,128,128,0.2)',
+                    title="BSP (₹/sq ft)"
+                ),
+                title_x=0.5,
+                showlegend=True
+            )
+            st.plotly_chart(fig_bsp, use_container_width=True)
+        
+        # Monthly Analysis with Transfer/Cancel Focus
+        st.markdown("---")
+        st.markdown('<p class="section-title">Monthly Trends</p>', unsafe_allow_html=True)
+        
+        monthly_df = st.session_state.monthly_df
+        monthly_filtered = monthly_df.copy()
+        
+        if selected_tower != "All Towers":
+            monthly_filtered = monthly_filtered[monthly_filtered['Tower'] == selected_tower]
+        if selected_bhk != "All BHK":
+            monthly_filtered = monthly_filtered[monthly_filtered['BHK'] == selected_bhk]
+        
+        # Convert Month No to numeric and handle any conversion errors
+        monthly_filtered['Month No'] = pd.to_numeric(monthly_filtered['Month No'], errors='coerce')
+        monthly_filtered = monthly_filtered.dropna(subset=['Month No'])
+        
+        # Create separate trends for sales, transfers, and cancellations
+        monthly_stats = monthly_filtered.groupby(
+            ['Month No', 'Cancellation / Transfer']
+        ).size().reset_index(name='Count')
             sales_df = process_dataframe(
                 pd.read_excel(excel_file, 'Sales Analysis', skiprows=3),
                 'Sales Analysis'
