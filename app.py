@@ -358,14 +358,14 @@ if st.session_state.data_loaded:
 
     # Monthly Analysis
     st.markdown('<p class="section-title">Monthly Trends</p>', unsafe_allow_html=True)
-    
+
     monthly_df = st.session_state.monthly_df
     monthly_filtered = monthly_df.copy()
     if selected_tower != "All Towers":
         monthly_filtered = monthly_filtered[monthly_filtered['Tower'] == selected_tower]
     if selected_bhk != "All BHK":
         monthly_filtered = monthly_filtered[monthly_filtered['BHK'] == selected_bhk]
-    
+
     monthly_agg = monthly_filtered.groupby(['Month No', 'Old sale / New sale']).size().reset_index(name='Count')
     fig_monthly = px.line(
         monthly_agg,
@@ -374,7 +374,7 @@ if st.session_state.data_loaded:
         color='Old sale / New sale',
         markers=True,
         line_shape='spline'
-    )
+     )
     fig_monthly.update_layout(
         plot_bgcolor='white',
         paper_bgcolor='white',
