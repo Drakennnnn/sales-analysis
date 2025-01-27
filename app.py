@@ -63,6 +63,16 @@ st.markdown("""
         margin-bottom: 1rem;
         color: #1f77b4;
     }
+    .stDataFrame {
+        background-color: white;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .stDownloadButton {
+        margin-top: 1rem;
+        margin-bottom: 1rem;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -138,6 +148,16 @@ def clean_status(status):
 if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
 
+# Initialize error handler
+def handle_error(func):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            st.error(f"An error occurred: {str(e)}")
+            return None
+    return wrapper
+
 # File upload section
 st.title("Real Estate Analytics Dashboard")
 st.markdown("---")
@@ -183,6 +203,10 @@ if uploaded_file is not None:
             sales_df = pd.read_excel(excel_file, 'Sales Analysis', skiprows=3)
             monthly_df = pd.read_excel(excel_file, 'Monthly Data', skiprows=2)
             summary_df = pd.read_excel(excel_file, 'Sales Summary', skiprows=2)
+            
+            # Clean monthly data
+            monthly_df['BHK'] = monthly_df['BHK'].apply(normalize_bhk)
+            monthly_df['Tower'] = monthly_df['Tower'].apply(normalize_tower)
             
             st.session_state.data_loaded = True
             st.session_state.collection_df = collection_df
@@ -400,8 +424,7 @@ if st.session_state.data_loaded:
         markers=True,
         line_shape='spline'
     )
-
-fig_monthly.update_layout(
+    fig_monthly.update_layout(
         plot_bgcolor='white',
         paper_bgcolor='white',
         xaxis_title="Month Number",
@@ -581,13 +604,3 @@ else:
             </ul>
         </div>
     """, unsafe_allow_html=True)
-
-# Error handling for the entire app
-def handle_error(func):
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            st.error(f"An error occurred: {str(e)}")
-            return None
-    return wrapper
