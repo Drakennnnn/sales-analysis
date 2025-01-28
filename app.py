@@ -400,7 +400,7 @@ if st.session_state.data_loaded:
                 delta=f"₹{(required_collection - current_collection)/1e7:.1f}Cr pending"
             )
 
-      with col4:
+        with col4:
             total_area = active_df['Area'].sum()
             st.metric(
                 "Total Area",
