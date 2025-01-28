@@ -231,7 +231,7 @@ if uploaded_file is not None:
         with st.spinner('Processing data...'):
             # Read Excel file
             excel_file = pd.ExcelFile(uploaded_file)
-            required_sheets = ['Collection Analysis', 'Sales Analysis', 'Monthly Data', 'Sales Summary']
+            required_sheets = ['Collection Analysis', 'Sales Analysis', 'Monthly Data', 'Sales Summary', 'Report']
             
             # Verify required sheets
             missing_sheets = [sheet for sheet in required_sheets if sheet not in excel_file.sheet_names]
@@ -255,6 +255,10 @@ if uploaded_file is not None:
             summary_df = process_dataframe(
                 pd.read_excel(excel_file, 'Sales Summary', skiprows=2),
                 'Sales Summary'
+            )
+            report_df = process_dataframe(
+               pd.read_excel(excel_file, 'Report', skiprows=2),
+               'Report'
             )
             
             # Get latest status from monthly data
@@ -281,6 +285,7 @@ if uploaded_file is not None:
             st.session_state.sales_df = sales_df
             st.session_state.monthly_df = monthly_df
             st.session_state.summary_df = summary_df
+            st.session_state.report_df = report_df  # Add this line
             
             st.success("Data loaded successfully!")
             
