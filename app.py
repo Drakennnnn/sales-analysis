@@ -361,19 +361,21 @@ if st.session_state.data_loaded:
             total_units = summary_df[total_units_col[0]].sum() if total_units_col else 0
             monthly_units = sales_analysis['Net Units Sold in Month'].iloc[-1] if not sales_analysis.empty and 'Net Units Sold in Month' in sales_analysis.columns else 0
             filtered_units = len(df)
+            delta_str = f"+{int(monthly_units)} this month" if monthly_units > 0 else f"{int(monthly_units)} this month"
             st.metric(
                 "Total Units",
                 f"{filtered_units:,}",
-                delta=f"+{str(monthly_units)} this month" if monthly_units > 0 else f"{str(monthly_units)} this month"
+                delta=delta_str
             )
         
         with col2:
             total_consideration = df['Total Consideration'].sum()
             monthly_consideration = sales_analysis['Net Value of Inventory Sold in Month'].iloc[-1] if not sales_analysis.empty and 'Net Value of Inventory Sold in Month' in sales_analysis.columns else 0
+            delta_consideration = f"₹{float(monthly_consideration)/1e7:.1f}Cr this month"
             st.metric(
                 "Total Consideration",
                 f"₹{total_consideration:,.0f}Cr",
-                delta=f"₹{monthly_consideration/1e7:.1f}Cr this month"
+                delta=delta_consideration
             )
         
         with col3:
@@ -381,22 +383,23 @@ if st.session_state.data_loaded:
             required_collection = df['Required Collection'].sum()
             collection_percentage = (current_collection / required_collection * 100) if required_collection else 0
             monthly_collection = report_df['Monthly collection in Dec-24'].iloc[-1] if not report_df.empty and 'Monthly collection in Dec-24' in report_df.columns else 0
+            delta_collection = f"₹{float(monthly_collection)/1e7:.1f}Cr this month"
             st.metric(
                 "Collection Achievement",
                 f"{collection_percentage:.1f}%",
-                delta=f"₹{monthly_collection/1e7:.1f}Cr this month"
+                delta=delta_collection
             )
         
         with col4:
             total_area = df['Area'].sum()
             cumulative_area = summary_df['Saleable Area'].sum() if 'Saleable Area' in summary_df.columns else 0
             monthly_area = sales_analysis['Net Area Sold in Month'].iloc[-1] if not sales_analysis.empty and 'Net Area Sold in Month' in sales_analysis.columns else 0
+            delta_area = f"+{float(monthly_area):,.0f} sq.ft this month" if monthly_area > 0 else f"{float(monthly_area):,.0f} sq.ft this month"
             st.metric(
                 "Total Area",
                 f"{total_area:,.0f} sq.ft",
-                delta=f"+{monthly_area:,.0f} sq.ft this month" if monthly_area > 0 else f"{monthly_area:,.0f} sq.ft this month"
+                delta=delta_area
             )
-        
         # Unit Distribution
         st.markdown("---")
         st.markdown('<p class="section-title">Unit Distribution Analysis</p>', unsafe_allow_html=True)
