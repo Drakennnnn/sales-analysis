@@ -357,8 +357,9 @@ if st.session_state.data_loaded:
         
         with col1:
             # Get cumulative units from Sales Summary
-            total_units = summary_df['No of Units'].sum()
-            monthly_units = sales_analysis['Net Units Sold in Month'].iloc[-1] if not sales_analysis.empty else 0
+            total_units_col = [col for col in summary_df.columns if 'units' in col.lower()]
+            total_units = summary_df[total_units_col[0]].sum() if total_units_col else 0
+            monthly_units = sales_analysis['Net Units Sold in Month'].iloc[-1] if not sales_analysis.empty and 'Net Units Sold in Month' in sales_analysis.columns else 0
             filtered_units = len(df)
             st.metric(
                 "Total Units",
