@@ -85,6 +85,13 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+def get_latest_month_data(df):
+    """Get data for the latest month only"""
+    if 'Month No' in df.columns:
+        latest_month = df['Month No'].max()
+        return df[df['Month No'] == latest_month]
+    return df
+
 def safe_string_handling(value):
     """Safely convert any value to string"""
     if pd.isna(value):
@@ -164,13 +171,49 @@ def normalize_status(status):
 def clean_numeric_columns(df, numeric_columns):
     """Clean numeric columns while safely handling datetime columns"""
     for col in df.columns:
-        # Skip datetime columns
         if pd.api.types.is_datetime64_any_dtype(df[col]) or isinstance(col, datetime):
             continue
-        # Process numeric columns
         if isinstance(col, str) and any(num_col.lower() in col.lower() for num_col in numeric_columns):
             df[col] = df[col].apply(clean_numeric)
     return df
+
+def integrate_sheets(monthly_df, collection_df, sales_df, summary_df):
+    """Integrate all sheets with proper data handling"""
+    
+    # Get latest month data
+    latest_monthly = get_latest_month_data(monthly_df)
+    
+    # Get latest status for each unit
+    latest_status = (latest_monthly[['Apt No', 'Tower', 'Cancellation / Transfer']]
+                    .drop_duplicates(subset=['Apt No', 'Tower'], keep='last'))
+    
+    # Merge collection data with latest status
+    integrated_df = collection_df.merge(
+        latest_status,
+        on=['Apt No', 'Tower'],
+        how='left'
+    )
+    
+    # Fill missing status with 'NEW SALE'
+    integrated_df['Cancellation / Transfer'] = integrated_df['Cancellation / Transfer'].fillna('NEW SALE')
+    
+    # Get latest sales data
+    latest_sales = get_latest_month_data(sales_df)
+    
+    # Merge with sales data if needed
+    if not latest_sales.empty and 'Apt No' in latest_sales.columns:
+        integrated_df = integrated_df.merge(
+            latest_sales[['Apt No', 'Tower', 'Sale Consideration', 'BSP']],
+            on=['Apt No', 'Tower'],
+            how='left'
+        )
+    
+    # Cross validate with summary if needed
+    if not summary_df.empty:
+        latest_summary = get_latest_month_data(summary_df)
+        # Add validation logic here if needed
+    
+    return integrated_df
 
 def process_dataframe(df, sheet_name):
     """Process and clean dataframe"""
@@ -182,7 +225,6 @@ def process_dataframe(df, sheet_name):
         
         # Skip datetime handling for Sales Analysis sheet
         if sheet_name != 'Sales Analysis':
-            # Convert datetime columns to string format first
             date_columns = df.select_dtypes(include=['datetime64']).columns
             for col in date_columns:
                 df[col] = df[col].dt.strftime('%Y-%m-%d')
@@ -197,7 +239,7 @@ def process_dataframe(df, sheet_name):
         if 'New/Old' in df.columns:
             df['New/Old'] = df['New/Old'].apply(lambda x: x.upper() if isinstance(x, str) else x)
         
-        # Clean numeric columns safely
+        # Clean numeric columns
         numeric_columns = ['Total Consideration', 'Required Collection', 'Current collection', 
                          'Area', 'BSP', 'Collection', 'Sale Consideration']
         df = clean_numeric_columns(df, numeric_columns)
@@ -257,28 +299,12 @@ if uploaded_file is not None:
                 'Sales Summary'
             )
             
-            # Get latest status from monthly data
-            monthly_df['Month No'] = pd.to_numeric(monthly_df['Month No'], errors='coerce')
-            # Rename Unit to Apt No for consistency
-            monthly_df = monthly_df.rename(columns={'Unit': 'Apt No'})
-            latest_status = (monthly_df.sort_values('Month No', ascending=False)
-                           .groupby(['Apt No', 'Tower'])
-                           .first()
-                           .reset_index()[['Apt No', 'Tower', 'Cancellation / Transfer']])
-
-            # Merge latest status with collection data
-            collection_df = collection_df.merge(
-                latest_status,
-                on=['Apt No', 'Tower'],
-                how='left'
-            )
-            # Fill any missing status with 'NEW SALE' as default
-            collection_df['Cancellation / Transfer'] = collection_df['Cancellation / Transfer'].fillna('NEW SALE')
+            # Integrate all sheets
+            integrated_df = integrate_sheets(monthly_df, collection_df, sales_df, summary_df)
             
             # Store in session state
             st.session_state.data_loaded = True
-            st.session_state.collection_df = collection_df
-            st.session_state.sales_df = sales_df
+            st.session_state.integrated_df = integrated_df
             st.session_state.monthly_df = monthly_df
             st.session_state.summary_df = summary_df
             
@@ -293,13 +319,13 @@ if st.session_state.data_loaded:
         # Sidebar filters
         st.sidebar.title("Filters")
         
-        collection_df = st.session_state.collection_df
+        integrated_df = st.session_state.integrated_df
         monthly_df = st.session_state.monthly_df
         
         # Get unique values for filters
-        towers = sorted([t for t in collection_df['Tower'].unique() 
+        towers = sorted([t for t in integrated_df['Tower'].unique() 
                        if t != "Not Specified" and pd.notna(t)])
-        bhk_types = sorted([b for b in collection_df['BHK'].unique() 
+        bhk_types = sorted([b for b in integrated_df['BHK'].unique() 
                           if b != "Not Specified" and pd.notna(b)])
         
         # Enhanced filters
@@ -332,8 +358,8 @@ if st.session_state.data_loaded:
         if status_filter:
             monthly_filtered = monthly_filtered[monthly_filtered['Cancellation / Transfer'].isin(status_filter)]
         
-        # Apply filters to collection data
-        df = collection_df.copy()
+        # Apply filters to integrated data
+        df = integrated_df.copy()
         if selected_tower != "All Towers":
             df = df[df['Tower'] == selected_tower]
         if selected_bhk != "All BHK":
@@ -343,18 +369,21 @@ if st.session_state.data_loaded:
         if status_filter:
             df = df[df['Cancellation / Transfer'].isin(status_filter)]
             
+        # Get latest active units only
+        active_df = df[df['Cancellation / Transfer'] == 'NEW SALE']
+            
         # Metrics Row
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric(
                 "Total Units",
-                f"{len(df):,}",
-                delta=f"{len(df)/len(collection_df)*100:.1f}% of total"
+                f"{len(active_df):,}",
+                delta=f"{len(active_df)/len(df)*100:.1f}% of total"
             )
         
         with col2:
-            total_consideration = df['Total Consideration'].sum()
+            total_consideration = active_df['Total Consideration'].sum()
             st.metric(
                 "Total Consideration",
                 f"₹{total_consideration:,.0f}Cr",
@@ -362,21 +391,21 @@ if st.session_state.data_loaded:
             )
         
         with col3:
-            current_collection = df['Current collection'].sum()
-            required_collection = df['Required Collection'].sum()
+            current_collection = active_df['Current collection'].sum()
+            required_collection = active_df['Required Collection'].sum()
             collection_percentage = (current_collection / required_collection * 100) if required_collection else 0
             st.metric(
                 "Collection Achievement",
                 f"{collection_percentage:.1f}%",
                 delta=f"₹{(required_collection - current_collection)/1e7:.1f}Cr pending"
             )
-        
-        with col4:
-            total_area = df['Area'].sum()
+
+      with col4:
+            total_area = active_df['Area'].sum()
             st.metric(
                 "Total Area",
                 f"{total_area:,.0f} sq.ft",
-                delta=f"{df['Area'].mean():,.0f} avg"
+                delta=f"{active_df['Area'].mean():,.0f} avg"
             )
         
         # Unit Distribution
@@ -387,7 +416,7 @@ if st.session_state.data_loaded:
         
         with col1:
             # Modified Tower Distribution to handle multiple statuses
-            tower_status_dist = df[df['Tower'] != "Not Specified"].groupby('Tower').size().reset_index()
+            tower_status_dist = active_df[active_df['Tower'] != "Not Specified"].groupby('Tower').size().reset_index()
             tower_status_dist.columns = ['Tower', 'Count']
             
             fig_tower = px.bar(
@@ -418,7 +447,7 @@ if st.session_state.data_loaded:
         
         with col2:
             # Enhanced BHK Distribution
-            bhk_dist = df[df['BHK'] != "Not Specified"]['BHK'].value_counts()
+            bhk_dist = active_df[active_df['BHK'] != "Not Specified"]['BHK'].value_counts()
             fig_bhk = go.Figure(data=[go.Pie(
                 labels=bhk_dist.index,
                 values=bhk_dist.values,
@@ -443,7 +472,7 @@ if st.session_state.data_loaded:
         
         with col1:
             # Enhanced Collection vs Required
-            tower_collection = df[df['Tower'] != "Not Specified"].groupby('Tower').agg({
+            tower_collection = active_df[active_df['Tower'] != "Not Specified"].groupby('Tower').agg({
                 'Required Collection': 'sum',
                 'Current collection': 'sum'
             }).reset_index()
@@ -467,13 +496,14 @@ if st.session_state.data_loaded:
                 plot_bgcolor=COLORS['background'],
                 paper_bgcolor=COLORS['background'],
                 title_x=0.5,
-                yaxis_title="Amount (Cr)"
+                yaxis_title="Amount (Cr)",
+                font_color='#ffffff'
             )
             st.plotly_chart(fig_collection, use_container_width=True)
         
         with col2:
             # Enhanced Collection Efficiency
-            collection_status = df['Collection Status'].value_counts()
+            collection_status = active_df['Collection Status'].value_counts()
             fig_efficiency = go.Figure(data=[go.Pie(
                 labels=collection_status.index,
                 values=collection_status.values,
@@ -484,7 +514,8 @@ if st.session_state.data_loaded:
                 title="Collection Status Distribution",
                 title_x=0.5,
                 plot_bgcolor=COLORS['background'],
-                paper_bgcolor=COLORS['background']
+                paper_bgcolor=COLORS['background'],
+                font_color='#ffffff'
             )
             st.plotly_chart(fig_efficiency, use_container_width=True)
         
@@ -492,9 +523,9 @@ if st.session_state.data_loaded:
         st.markdown("---")
         st.markdown('<p class="section-title">Pricing Analytics</p>', unsafe_allow_html=True)
         
-        if 'BSP' in df.columns:
+        if 'BSP' in active_df.columns:
             fig_bsp = px.box(
-                df[df['Tower'] != "Not Specified"],
+                active_df[active_df['Tower'] != "Not Specified"],
                 x='Tower',
                 y='BSP',
                 color='BHK',
@@ -506,11 +537,12 @@ if st.session_state.data_loaded:
                 paper_bgcolor=COLORS['background'],
                 title_x=0.5,
                 yaxis_title="BSP (₹/sq ft)",
-                showlegend=True
+                showlegend=True,
+                font_color='#ffffff'
             )
             st.plotly_chart(fig_bsp, use_container_width=True)
         
-        # Monthly Analysis with Transfer/Cancel Focus
+        # Monthly Analysis
         st.markdown("---")
         st.markdown('<p class="section-title">Monthly Trends</p>', unsafe_allow_html=True)
         
@@ -535,18 +567,19 @@ if st.session_state.data_loaded:
             xaxis_title="Month Number",
             yaxis_title="Number of Transactions",
             showlegend=True,
+            font_color='#ffffff',
             xaxis=dict(
                 tickmode='linear',
-                dtick=1  # Show every month number
+                dtick=1
             )
         )
         st.plotly_chart(fig_monthly, use_container_width=True)
         
-        # Detailed Data Table with Enhanced Filtering
+        # Detailed Data Table
         st.markdown("---")
         st.markdown('<p class="section-title">Detailed Unit Information</p>', unsafe_allow_html=True)
         
-        # Additional table filters
+        # Table filters
         col1, col2 = st.columns(2)
         with col1:
             min_collection = st.number_input(
@@ -563,10 +596,10 @@ if st.session_state.data_loaded:
                 value=100
             )
         
-        # Apply additional filters to table data
-        table_df = df[
-            (df['Collection Percentage'] >= min_collection) &
-            (df['Collection Percentage'] <= max_collection)
+        # Apply filters to table data
+        table_df = active_df[
+            (active_df['Collection Percentage'] >= min_collection) &
+            (active_df['Collection Percentage'] <= max_collection)
         ]
         
         # Column selector
