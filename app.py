@@ -356,7 +356,7 @@ if st.session_state.data_loaded:
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            # Get cumulative units from Sales Summary
+            # Get cumulative units from Sales Summary using the correct column name
             total_units_col = [col for col in summary_df.columns if 'units' in col.lower()]
             total_units = summary_df[total_units_col[0]].sum() if total_units_col else 0
             monthly_units = sales_analysis['Net Units Sold in Month'].iloc[-1] if not sales_analysis.empty and 'Net Units Sold in Month' in sales_analysis.columns else 0
@@ -364,13 +364,12 @@ if st.session_state.data_loaded:
             st.metric(
                 "Total Units",
                 f"{filtered_units:,}",
-                delta=f"+{monthly_units} this month" if monthly_units > 0 else f"{monthly_units} this month"
+                delta=f"+{str(monthly_units)} this month" if monthly_units > 0 else f"{str(monthly_units)} this month"
             )
         
         with col2:
-            # Get cumulative consideration from Sales Analysis
             total_consideration = df['Total Consideration'].sum()
-            monthly_consideration = sales_analysis['Net Value of Inventory Sold in Month'].iloc[-1] if not sales_analysis.empty else 0
+            monthly_consideration = sales_analysis['Net Value of Inventory Sold in Month'].iloc[-1] if not sales_analysis.empty and 'Net Value of Inventory Sold in Month' in sales_analysis.columns else 0
             st.metric(
                 "Total Consideration",
                 f"₹{total_consideration:,.0f}Cr",
@@ -378,11 +377,10 @@ if st.session_state.data_loaded:
             )
         
         with col3:
-            # Get collection data from Report
             current_collection = df['Current collection'].sum()
             required_collection = df['Required Collection'].sum()
             collection_percentage = (current_collection / required_collection * 100) if required_collection else 0
-            monthly_collection = report_df['Monthly collection in Dec-24'].iloc[-1] if 'Monthly collection in Dec-24' in report_df.columns else 0
+            monthly_collection = report_df['Monthly collection in Dec-24'].iloc[-1] if not report_df.empty and 'Monthly collection in Dec-24' in report_df.columns else 0
             st.metric(
                 "Collection Achievement",
                 f"{collection_percentage:.1f}%",
@@ -390,10 +388,9 @@ if st.session_state.data_loaded:
             )
         
         with col4:
-            # Get cumulative area from Sales Summary
             total_area = df['Area'].sum()
-            cumulative_area = summary_df['Saleable Area'].sum()
-            monthly_area = sales_analysis['Net Area Sold in Month'].iloc[-1] if not sales_analysis.empty else 0
+            cumulative_area = summary_df['Saleable Area'].sum() if 'Saleable Area' in summary_df.columns else 0
+            monthly_area = sales_analysis['Net Area Sold in Month'].iloc[-1] if not sales_analysis.empty and 'Net Area Sold in Month' in sales_analysis.columns else 0
             st.metric(
                 "Total Area",
                 f"{total_area:,.0f} sq.ft",
