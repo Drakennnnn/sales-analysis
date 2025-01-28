@@ -154,13 +154,23 @@ def normalize_status(status):
     value = value.upper()
     status_map = {
         'SOLD': 'SOLD',
-        'AVAILABLE': 'AVAILABLE',
         'CANCEL': 'CANCELLED',
         'CANCELLED': 'CANCELLED',
-        'BLOCKED': 'BLOCKED',
-        'TRANSFER': 'TRANSFER'
+        'TRANSFER': 'TRANSFER',
+        'NEW SALE': 'NEW SALE'
     }
     return status_map.get(value, value)
+
+def clean_numeric_columns(df, numeric_columns):
+    """Clean numeric columns while safely handling datetime columns"""
+    for col in df.columns:
+        # Skip datetime columns
+        if pd.api.types.is_datetime64_any_dtype(df[col]) or isinstance(col, datetime):
+            continue
+        # Process numeric columns
+        if isinstance(col, str) and any(num_col.lower() in col.lower() for num_col in numeric_columns):
+            df[col] = df[col].apply(clean_numeric)
+    return df
 
 def process_dataframe(df, sheet_name):
     """Process and clean dataframe"""
@@ -182,17 +192,15 @@ def process_dataframe(df, sheet_name):
             df['BHK'] = df['BHK'].apply(normalize_bhk)
         if 'Tower' in df.columns:
             df['Tower'] = df['Tower'].apply(normalize_tower)
-        if 'Current Status' in df.columns:
-            df['Current Status'] = df['Current Status'].apply(normalize_status)
         if 'Cancellation / Transfer' in df.columns:
             df['Cancellation / Transfer'] = df['Cancellation / Transfer'].apply(normalize_status)
+        if 'New/Old' in df.columns:
+            df['New/Old'] = df['New/Old'].apply(lambda x: x.upper() if isinstance(x, str) else x)
         
-        # Clean numeric columns
+        # Clean numeric columns safely
         numeric_columns = ['Total Consideration', 'Required Collection', 'Current collection', 
                          'Area', 'BSP', 'Collection', 'Sale Consideration']
-        for col in df.columns:
-            if any(num_col.lower() in col.lower() for num_col in numeric_columns):
-                df[col] = df[col].apply(clean_numeric)
+        df = clean_numeric_columns(df, numeric_columns)
         
         # Add derived columns
         if all(col in df.columns for col in ['Current collection', 'Required Collection']):
@@ -249,6 +257,24 @@ if uploaded_file is not None:
                 'Sales Summary'
             )
             
+            # Get latest status from monthly data
+            monthly_df['Month No'] = pd.to_numeric(monthly_df['Month No'], errors='coerce')
+            # Rename Unit to Apt No for consistency
+            monthly_df = monthly_df.rename(columns={'Unit': 'Apt No'})
+            latest_status = (monthly_df.sort_values('Month No', ascending=False)
+               .groupby(['Apt No', 'Tower'])
+               .first()
+               .reset_index()[['Apt No', 'Tower', 'Cancellation / Transfer']])
+
+            # Merge latest status with collection data
+            collection_df = collection_df.merge(
+              latest_status,
+              on=['Apt No', 'Tower'],
+              how='left'
+            )
+            # Fill any missing status with 'NEW SALE' as default
+            collection_df['Cancellation / Transfer'] = collection_df['Cancellation / Transfer'].fillna('NEW SALE')
+            
             # Store in session state
             st.session_state.data_loaded = True
             st.session_state.collection_df = collection_df
@@ -268,6 +294,7 @@ if st.session_state.data_loaded:
         st.sidebar.title("Filters")
         
         collection_df = st.session_state.collection_df
+        monthly_df = st.session_state.monthly_df
         
         # Get unique values for filters
         towers = sorted([t for t in collection_df['Tower'].unique() 
@@ -289,13 +316,23 @@ if st.session_state.data_loaded:
             )
             
             st.markdown("### Status Filters")
+            status_options = ["NEW SALE", "CANCELLED", "TRANSFER"]
             status_filter = st.multiselect(
-                "Unit Status",
-                ["SOLD", "CANCELLED", "TRANSFER", "AVAILABLE"],
-                default=["SOLD"]
+                "Transaction Type",
+                status_options,
+                default=["NEW SALE"]
             )
         
-        # Apply filters
+        # Apply filters to monthly data
+        monthly_filtered = monthly_df.copy()
+        if selected_tower != "All Towers":
+            monthly_filtered = monthly_filtered[monthly_filtered['Tower'] == selected_tower]
+        if selected_bhk != "All BHK":
+            monthly_filtered = monthly_filtered[monthly_filtered['BHK'] == selected_bhk]
+        if status_filter:
+            monthly_filtered = monthly_filtered[monthly_filtered['Cancellation / Transfer'].isin(status_filter)]
+        
+        # Apply filters to collection data
         df = collection_df.copy()
         if selected_tower != "All Towers":
             df = df[df['Tower'] == selected_tower]
@@ -304,8 +341,8 @@ if st.session_state.data_loaded:
         if collection_filter != "All":
             df = df[df['Collection Status'] == collection_filter]
         if status_filter:
-            df = df[df['Current Status'].isin(status_filter)]
-        
+            df = df[df['Cancellation / Transfer'].isin(status_filter)]
+            
         # Metrics Row
         col1, col2, col3, col4 = st.columns(4)
         
@@ -477,17 +514,8 @@ if st.session_state.data_loaded:
         st.markdown("---")
         st.markdown('<p class="section-title">Monthly Trends</p>', unsafe_allow_html=True)
         
-        monthly_df = st.session_state.monthly_df
-        monthly_filtered = monthly_df.copy()
-        
-        if selected_tower != "All Towers":
-            monthly_filtered = monthly_filtered[monthly_filtered['Tower'] == selected_tower]
-        if selected_bhk != "All BHK":
-            monthly_filtered = monthly_filtered[monthly_filtered['BHK'] == selected_bhk]
-        
-        # Convert Month No to numeric and handle any conversion errors
-        monthly_filtered['Month No'] = pd.to_numeric(monthly_filtered['Month No'], errors='coerce')
-        monthly_filtered = monthly_filtered.dropna(subset=['Month No'])
+        # Sort monthly_filtered by Month No for proper trend display
+        monthly_filtered = monthly_filtered.sort_values('Month No')
         
         # Create separate trends for sales, transfers, and cancellations
         monthly_stats = monthly_filtered.groupby(['Month No', 'Cancellation / Transfer']).size().reset_index(name='Count')
@@ -506,7 +534,11 @@ if st.session_state.data_loaded:
             title_x=0.5,
             xaxis_title="Month Number",
             yaxis_title="Number of Transactions",
-            showlegend=True
+            showlegend=True,
+            xaxis=dict(
+                tickmode='linear',
+                dtick=1  # Show every month number
+            )
         )
         st.plotly_chart(fig_monthly, use_container_width=True)
         
@@ -538,9 +570,9 @@ if st.session_state.data_loaded:
         ]
         
         # Column selector
-        default_columns = ['Apt No', 'BHK', 'Tower', 'Area', 'Current Status', 
+        default_columns = ['Apt No', 'BHK', 'Tower', 'Area', 'Cancellation / Transfer', 
                           'Total Consideration', 'Current collection', 'Collection Percentage',
-                          'Collection Status', 'Customer Name']
+                          'Collection Status', 'Customer Name', 'New/Old']
         available_columns = [col for col in table_df.columns if col in table_df.columns]
         
         selected_columns = st.multiselect(
