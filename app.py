@@ -177,44 +177,6 @@ def clean_numeric_columns(df, numeric_columns):
             df[col] = df[col].apply(clean_numeric)
     return df
 
-def integrate_sheets(monthly_df, collection_df, sales_df, summary_df):
-    """Integrate all sheets with proper data handling"""
-    
-    # Get latest month data
-    latest_monthly = get_latest_month_data(monthly_df)
-    
-    # Get latest status for each unit
-    latest_status = (latest_monthly[['Apt No', 'Tower', 'Cancellation / Transfer']]
-                    .drop_duplicates(subset=['Apt No', 'Tower'], keep='last'))
-    
-    # Merge collection data with latest status
-    integrated_df = collection_df.merge(
-        latest_status,
-        on=['Apt No', 'Tower'],
-        how='left'
-    )
-    
-    # Fill missing status with 'NEW SALE'
-    integrated_df['Cancellation / Transfer'] = integrated_df['Cancellation / Transfer'].fillna('NEW SALE')
-    
-    # Get latest sales data
-    latest_sales = get_latest_month_data(sales_df)
-    
-    # Merge with sales data if needed
-    if not latest_sales.empty and 'Apt No' in latest_sales.columns:
-        integrated_df = integrated_df.merge(
-            latest_sales[['Apt No', 'Tower', 'Sale Consideration', 'BSP']],
-            on=['Apt No', 'Tower'],
-            how='left'
-        )
-    
-    # Cross validate with summary if needed
-    if not summary_df.empty:
-        latest_summary = get_latest_month_data(summary_df)
-        # Add validation logic here if needed
-    
-    return integrated_df
-
 def process_dataframe(df, sheet_name):
     """Process and clean dataframe"""
     try:
@@ -273,34 +235,51 @@ if uploaded_file is not None:
         with st.spinner('Processing data...'):
             # Read Excel file
             excel_file = pd.ExcelFile(uploaded_file)
-            required_sheets = ['Collection Analysis', 'Sales Analysis', 'Monthly Data', 'Sales Summary']
-            
-            # Verify required sheets
-            missing_sheets = [sheet for sheet in required_sheets if sheet not in excel_file.sheet_names]
-            if missing_sheets:
-                st.error(f"Missing required sheets: {', '.join(missing_sheets)}")
-                st.stop()
             
             # Process each sheet
             collection_df = process_dataframe(
                 pd.read_excel(excel_file, 'Collection Analysis', skiprows=3),
                 'Collection Analysis'
             )
+            
+            # Get latest month data for sales sheets
             sales_df = process_dataframe(
-                pd.read_excel(excel_file, 'Sales Analysis', skiprows=3),
+                get_latest_month_data(pd.read_excel(excel_file, 'Sales Analysis', skiprows=3)),
                 'Sales Analysis'
             )
+            
             monthly_df = process_dataframe(
                 pd.read_excel(excel_file, 'Monthly Data', skiprows=2),
                 'Monthly Data'
             )
+            
             summary_df = process_dataframe(
-                pd.read_excel(excel_file, 'Sales Summary', skiprows=2),
+                get_latest_month_data(pd.read_excel(excel_file, 'Sales Summary', skiprows=2)),
                 'Sales Summary'
             )
             
-            # Integrate all sheets
-            integrated_df = integrate_sheets(monthly_df, collection_df, sales_df, summary_df)
+            # Handle different unit number columns in monthly data
+            if 'Unit' in monthly_df.columns:
+                monthly_df = monthly_df.rename(columns={'Unit': 'Apt No'})
+            elif 'Unit Nos' in monthly_df.columns:
+                monthly_df = monthly_df.rename(columns={'Unit Nos': 'Apt No'})
+            
+            # Get latest status from Monthly Data
+            monthly_df['Month No'] = pd.to_numeric(monthly_df['Month No'], errors='coerce')
+            latest_status = (monthly_df.sort_values('Month No', ascending=False)
+                           .groupby(['Apt No', 'Tower'])
+                           .first()
+                           .reset_index()[['Apt No', 'Tower', 'Cancellation / Transfer']])
+
+            # Merge with collection data
+            integrated_df = collection_df.merge(
+                latest_status,
+                on=['Apt No', 'Tower'],
+                how='left'
+            )
+            
+            # Fill missing status with 'NEW SALE'
+            integrated_df['Cancellation / Transfer'] = integrated_df['Cancellation / Transfer'].fillna('NEW SALE')
             
             # Store in session state
             st.session_state.data_loaded = True
@@ -399,7 +378,7 @@ if st.session_state.data_loaded:
                 f"{collection_percentage:.1f}%",
                 delta=f"₹{(required_collection - current_collection)/1e7:.1f}Cr pending"
             )
-
+        
         with col4:
             total_area = active_df['Area'].sum()
             st.metric(
@@ -680,7 +659,6 @@ if st.session_state.data_loaded:
     except Exception as e:
         st.error(f"Error in dashboard: {str(e)}")
         st.stop()
-
 else:
     # Show welcome message
     st.markdown("""
