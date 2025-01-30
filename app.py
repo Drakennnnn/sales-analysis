@@ -115,16 +115,16 @@ def normalize_bhk(bhk):
     value = safe_string_handling(bhk)
     if not value:
         return "Not Specified"
-    
+
     value = value.upper()
     numeric_part = re.search(r'\d+', value)
     if numeric_part:
         number = numeric_part.group()
         return f"{number}-BHK"
-    
+
     if 'SHOP' in value:
         return 'SHOP'
-    
+
     return "Not Specified"
 
 def normalize_tower(tower):
@@ -132,17 +132,17 @@ def normalize_tower(tower):
     value = safe_string_handling(tower)
     if not value:
         return "Not Specified"
-    
+
     value = value.upper()
     if 'RETAIL' in value:
         return 'RETAIL'
-    
+
     if value.startswith('CA'):
         match = re.search(r'(\d+)', value)
         if match:
             number = match.group(1).zfill(2)
             return f"CA {number}"
-    
+
     return value
 
 def normalize_status(status):
@@ -150,7 +150,7 @@ def normalize_status(status):
     value = safe_string_handling(status)
     if not value:
         return "Not Specified"
-    
+
     value = value.upper()
     status_map = {
         'SOLD': 'SOLD',
@@ -176,17 +176,17 @@ def process_dataframe(df, sheet_name):
     """Process and clean dataframe"""
     try:
         df = df.copy()
-        
+
         # Basic cleaning
         df = df.replace([np.inf, -np.inf], np.nan)
-        
+
         # Skip datetime handling for Sales Analysis sheet
         if sheet_name != 'Sales Analysis':
             # Convert datetime columns to string format first
             date_columns = df.select_dtypes(include=['datetime64']).columns
             for col in date_columns:
                 df[col] = df[col].dt.strftime('%Y-%m-%d')
-        
+
         # Normalize string columns
         if 'BHK' in df.columns:
             df['BHK'] = df['BHK'].apply(normalize_bhk)
@@ -196,21 +196,21 @@ def process_dataframe(df, sheet_name):
             df['Cancellation / Transfer'] = df['Cancellation / Transfer'].apply(normalize_status)
         if 'New/Old' in df.columns:
             df['New/Old'] = df['New/Old'].apply(lambda x: x.upper() if isinstance(x, str) else x)
-        
+
         # Clean numeric columns safely
         numeric_columns = ['Total Consideration', 'Required Collection', 'Current collection', 
                          'Area', 'BSP', 'Collection', 'Sale Consideration']
         df = clean_numeric_columns(df, numeric_columns)
-        
+
         # Add derived columns
         if all(col in df.columns for col in ['Current collection', 'Required Collection']):
             df['Collection Percentage'] = (df['Current collection'] / df['Required Collection'] * 100).clip(0, 100)
             df['Collection Shortfall'] = df['Required Collection'] - df['Current collection']
             df['Collection Status'] = np.where(df['Collection Percentage'] >= 100, 'Met Target',
                                     np.where(df['Collection Percentage'] >= 75, 'Near Target', 'Below Target'))
-        
+
         return df
-    
+
     except Exception as e:
         st.error(f"Error processing {sheet_name}: {str(e)}")
         return pd.DataFrame()
@@ -232,13 +232,13 @@ if uploaded_file is not None:
             # Read Excel file
             excel_file = pd.ExcelFile(uploaded_file)
             required_sheets = ['Collection Analysis', 'Sales Analysis', 'Monthly Data', 'Sales Summary', 'Report']
-            
+
             # Verify required sheets
             missing_sheets = [sheet for sheet in required_sheets if sheet not in excel_file.sheet_names]
             if missing_sheets:
                 st.error(f"Missing required sheets: {', '.join(missing_sheets)}")
                 st.stop()
-            
+
             # Process each sheet
             collection_df = process_dataframe(
                 pd.read_excel(excel_file, 'Collection Analysis', skiprows=3),
@@ -257,38 +257,38 @@ if uploaded_file is not None:
                 'Sales Summary'
             )
             report_df = process_dataframe(
-               pd.read_excel(excel_file, 'Report', skiprows=2),
-               'Report'
+                pd.read_excel(excel_file, 'Report', skiprows=2),
+                'Report'
             )
-            
+
             # Get latest status from monthly data
             monthly_df['Month No'] = pd.to_numeric(monthly_df['Month No'], errors='coerce')
             # Rename Unit to Apt No for consistency
             monthly_df = monthly_df.rename(columns={'Unit': 'Apt No'})
             latest_status = (monthly_df.sort_values('Month No', ascending=False)
-               .groupby(['Apt No', 'Tower'])
-               .first()
-               .reset_index()[['Apt No', 'Tower', 'Cancellation / Transfer']])
+                           .groupby(['Apt No', 'Tower'])
+                           .first()
+                           .reset_index()[['Apt No', 'Tower', 'Cancellation / Transfer']])
 
             # Merge latest status with collection data
             collection_df = collection_df.merge(
-              latest_status,
-              on=['Apt No', 'Tower'],
-              how='left'
+                latest_status,
+                on=['Apt No', 'Tower'],
+                how='left'
             )
             # Fill any missing status with 'NEW SALE' as default
             collection_df['Cancellation / Transfer'] = collection_df['Cancellation / Transfer'].fillna('NEW SALE')
-            
+
             # Store in session state
             st.session_state.data_loaded = True
             st.session_state.collection_df = collection_df
             st.session_state.sales_df = sales_df
             st.session_state.monthly_df = monthly_df
             st.session_state.summary_df = summary_df
-            st.session_state.report_df = report_df  # Add this line
-            
+            st.session_state.report_df = report_df
+
             st.success("Data loaded successfully!")
-            
+
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
         st.stop()
@@ -297,29 +297,29 @@ if st.session_state.data_loaded:
     try:
         # Sidebar filters
         st.sidebar.title("Filters")
-        
+
         collection_df = st.session_state.collection_df
         monthly_df = st.session_state.monthly_df
-        
+
         # Get unique values for filters
         towers = sorted([t for t in collection_df['Tower'].unique() 
                        if t != "Not Specified" and pd.notna(t)])
         bhk_types = sorted([b for b in collection_df['BHK'].unique() 
                           if b != "Not Specified" and pd.notna(b)])
-        
+
         # Enhanced filters
         with st.sidebar:
             st.markdown("### Unit Filters")
             selected_tower = st.selectbox("Select Tower", ["All Towers"] + towers)
             selected_bhk = st.selectbox("Select BHK Type", ["All BHK"] + bhk_types)
-            
+
             st.markdown("### Collection Filters")
             collection_filter = st.radio(
                 "Collection Status",
                 ["All", "Below Target", "Near Target", "Met Target"],
                 index=0
             )
-            
+
             st.markdown("### Status Filters")
             status_options = ["NEW SALE", "CANCELLED", "TRANSFER"]
             status_filter = st.multiselect(
@@ -327,7 +327,7 @@ if st.session_state.data_loaded:
                 status_options,
                 default=["NEW SALE"]
             )
-        
+
         # Apply filters to monthly data
         monthly_filtered = monthly_df.copy()
         if selected_tower != "All Towers":
@@ -336,7 +336,7 @@ if st.session_state.data_loaded:
             monthly_filtered = monthly_filtered[monthly_filtered['BHK'] == selected_bhk]
         if status_filter:
             monthly_filtered = monthly_filtered[monthly_filtered['Cancellation / Transfer'].isin(status_filter)]
-        
+
         # Apply filters to collection data
         df = collection_df.copy()
         if selected_tower != "All Towers":
@@ -347,60 +347,80 @@ if st.session_state.data_loaded:
             df = df[df['Collection Status'] == collection_filter]
         if status_filter:
             df = df[df['Cancellation / Transfer'].isin(status_filter)]
-            
-        # Metrics Row
-        sales_analysis = st.session_state.sales_df
+
+        # Get all required dataframes from session state
+        sales_df = st.session_state.sales_df
         summary_df = st.session_state.summary_df
         report_df = st.session_state.report_df
 
+        # Get latest month columns dynamically
+        collection_cols = [col for col in report_df.columns if 'Collections till' in col]
+        latest_collection_col = collection_cols[-1] if collection_cols else None
+
+        demand_cols = [col for col in report_df.columns if 'Cum. Demand raised in' in col]
+        latest_demand_col = demand_cols[-1] if demand_cols else None
+
+        sold_cols = [col for col in report_df.columns if 'Sold in' in col]
+        latest_sold_col = sold_cols[-1] if sold_cols else None
+
+        # Metrics Row
         col1, col2, col3, col4 = st.columns(4)
-        
+
         with col1:
-            # Simply use the filtered data count for now
-            filtered_units = len(df)
+            total_row = summary_df[summary_df['Total'].notna()].iloc[-1]
+            total_units = total_row['Total']
+            unsold_percent = total_row['% Unsold'] if '% Unsold' in summary_df.columns else 0
             st.metric(
                 "Total Units",
-                str(filtered_units),  # Convert to string
-                delta=str(len(df)/len(collection_df)*100) + "% of total"  # Convert all parts to string
+                f"{int(total_units):,}",
+                delta=f"{float(unsold_percent):.2f}% unsold"
             )
-        
+
         with col2:
-            total_consideration = df['Total Consideration'].sum()
+            # From Report sheet Sub Total row
+            total_row = report_df.iloc[-2]  # Sub Total row
+            total_consideration = total_row['Total Balance']
+            monthly_sale = total_row[latest_sold_col] if latest_sold_col else 0
             st.metric(
                 "Total Consideration",
-                f"₹{total_consideration:,.0f}Cr",
-                delta=f"₹{total_consideration/1e7:.1f}Cr"
+                f"₹{float(total_consideration):.1f}Cr",
+                delta=f"₹{float(monthly_sale):.1f}Cr this month"
             )
-        
+
         with col3:
-            current_collection = df['Current collection'].sum()
-            required_collection = df['Required Collection'].sum()
-            collection_percentage = (current_collection / required_collection * 100) if required_collection else 0
-            shortfall = required_collection - current_collection
+            # From Report sheet Sub Total row
+            collection_data = report_df.iloc[-2]  # Sub Total row
+            total_collection = collection_data[latest_collection_col] if latest_collection_col else 0
+            total_demand = collection_data[latest_demand_col] if latest_demand_col else 0
+            collection_shortfall = collection_data['Balance Due']
+            collection_percentage = (float(total_collection)/float(total_demand) * 100) if float(total_demand) else 0
             st.metric(
                 "Collection Achievement",
                 f"{collection_percentage:.1f}%",
-                delta=f"₹{shortfall/1e7:.1f}Cr pending"
+                delta=f"₹{float(collection_shortfall):.1f}Cr pending"
             )
-        
+
         with col4:
-            total_area = df['Area'].sum()
+            # From Sales Summary total saleable and sold areas
+            total_area = summary_df['Saleable Area'].sum()
+            sold_area = summary_df[summary_df['Status'] == 'Sold']['Saleable Area'].sum() if 'Status' in summary_df.columns else 0
             st.metric(
                 "Total Area",
-                f"{total_area:,.0f} sq.ft",
-                delta=f"{float(df['Area'].mean()):.0f} avg"  # Explicitly convert to float
-            )
+                f"{float(total_area):,.0f} sq.ft",
+                delta=f"{float(sold_area):,.0f} sq.ft sold"
+            )    
+
         # Unit Distribution
         st.markdown("---")
         st.markdown('<p class="section-title">Unit Distribution Analysis</p>', unsafe_allow_html=True)
-        
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
             # Modified Tower Distribution to handle multiple statuses
             tower_status_dist = df[df['Tower'] != "Not Specified"].groupby('Tower').size().reset_index()
             tower_status_dist.columns = ['Tower', 'Count']
-            
+
             fig_tower = px.bar(
                 tower_status_dist,
                 x='Tower',
@@ -426,7 +446,7 @@ if st.session_state.data_loaded:
                 title_x=0.5
             )
             st.plotly_chart(fig_tower, use_container_width=True)
-        
+
         with col2:
             # Enhanced BHK Distribution
             bhk_dist = df[df['BHK'] != "Not Specified"]['BHK'].value_counts()
@@ -445,20 +465,20 @@ if st.session_state.data_loaded:
                 font_color='#ffffff'
             )
             st.plotly_chart(fig_bhk, use_container_width=True)
-        
+
         # Collection Analysis
         st.markdown("---")
         st.markdown('<p class="section-title">Collection Analysis</p>', unsafe_allow_html=True)
-        
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
             # Enhanced Collection vs Required
             tower_collection = df[df['Tower'] != "Not Specified"].groupby('Tower').agg({
                 'Required Collection': 'sum',
                 'Current collection': 'sum'
             }).reset_index()
-            
+
             fig_collection = go.Figure()
             fig_collection.add_trace(go.Bar(
                 name='Required Collection',
@@ -481,7 +501,7 @@ if st.session_state.data_loaded:
                 yaxis_title="Amount (Cr)"
             )
             st.plotly_chart(fig_collection, use_container_width=True)
-        
+
         with col2:
             # Enhanced Collection Efficiency
             collection_status = df['Collection Status'].value_counts()
@@ -498,11 +518,11 @@ if st.session_state.data_loaded:
                 paper_bgcolor=COLORS['background']
             )
             st.plotly_chart(fig_efficiency, use_container_width=True)
-        
+
         # BSP Analysis
         st.markdown("---")
         st.markdown('<p class="section-title">Pricing Analytics</p>', unsafe_allow_html=True)
-        
+
         if 'BSP' in df.columns:
             fig_bsp = px.box(
                 df[df['Tower'] != "Not Specified"],
@@ -520,17 +540,17 @@ if st.session_state.data_loaded:
                 showlegend=True
             )
             st.plotly_chart(fig_bsp, use_container_width=True)
-        
+
         # Monthly Analysis with Transfer/Cancel Focus
         st.markdown("---")
         st.markdown('<p class="section-title">Monthly Trends</p>', unsafe_allow_html=True)
-        
+
         # Sort monthly_filtered by Month No for proper trend display
         monthly_filtered = monthly_filtered.sort_values('Month No')
-        
+
         # Create separate trends for sales, transfers, and cancellations
         monthly_stats = monthly_filtered.groupby(['Month No', 'Cancellation / Transfer']).size().reset_index(name='Count')
-        
+
         fig_monthly = px.line(
             monthly_stats,
             x='Month No',
@@ -552,11 +572,11 @@ if st.session_state.data_loaded:
             )
         )
         st.plotly_chart(fig_monthly, use_container_width=True)
-        
+
         # Detailed Data Table with Enhanced Filtering
         st.markdown("---")
         st.markdown('<p class="section-title">Detailed Unit Information</p>', unsafe_allow_html=True)
-        
+
         # Additional table filters
         col1, col2 = st.columns(2)
         with col1:
@@ -573,19 +593,19 @@ if st.session_state.data_loaded:
                 max_value=100,
                 value=100
             )
-        
+
         # Apply additional filters to table data
         table_df = df[
             (df['Collection Percentage'] >= min_collection) &
             (df['Collection Percentage'] <= max_collection)
         ]
-        
+
         # Column selector
         default_columns = ['Apt No', 'BHK', 'Tower', 'Area', 'Cancellation / Transfer', 
                           'Total Consideration', 'Current collection', 'Collection Percentage',
                           'Collection Status', 'Customer Name', 'New/Old']
         available_columns = [col for col in table_df.columns if col in table_df.columns]
-        
+
         selected_columns = st.multiselect(
             "Select columns to display",
             available_columns,
@@ -602,7 +622,7 @@ if st.session_state.data_loaded:
                 formatted_df['Collection Percentage'] = formatted_df['Collection Percentage'].apply(lambda x: f"{x:.1f}%")
             if 'Area' in selected_columns:
                 formatted_df['Area'] = formatted_df['Area'].apply(lambda x: f"{x:,.0f}")
-            
+
             st.dataframe(
                 formatted_df.sort_values('Apt No'),
                 use_container_width=True,
@@ -612,18 +632,18 @@ if st.session_state.data_loaded:
         # Download section
         st.markdown("---")
         st.markdown('<p class="section-title">Export Data</p>', unsafe_allow_html=True)
-        
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
             csv = table_df.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="Download Filtered Data as CSV",
                 data=csv,
-                file_name=f"real_estate_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"real_estatedata{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
             )
-        
+
         with col2:
             summary_stats = pd.DataFrame({
                 'Metric': ['Total Units', 'Total Area (sq ft)', 'Total Consideration', 
@@ -641,20 +661,20 @@ if st.session_state.data_loaded:
             st.download_button(
                 label="Download Summary Statistics",
                 data=csv_summary,
-                file_name=f"summary_stats_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"summarystats{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
             )
-        
+
         # Footer
         st.markdown("---")
-        st.markdown(f"*Dashboard last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
-        
+        st.markdown(f"Dashboard last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
         # Add cache clearing button in sidebar
         if st.sidebar.button("Clear Cache and Reset"):
             st.cache_data.clear()
             st.session_state.data_loaded = False
             st.experimental_rerun()
-            
+
     except Exception as e:
         st.error(f"Error in dashboard: {str(e)}")
         st.stop()
