@@ -335,40 +335,49 @@ if st.session_state.data_loaded:
             df = df[df['Cancellation / Transfer'].isin(status_filter)]
 
         # Get latest summary totals
-        total_row = summary_df[summary_df['Type'].str.contains('Total', na=False)].iloc[-1]
-        
-        # Metrics Row
-        col1, col2, col3, col4 = st.columns(4)
+        # Get latest summary totals
+        try:
+            # Filter for the 'Total' row (Grand Total)
+            totals = summary_df[summary_df['Total'].str.contains('Total', na=False)].iloc[-1]
+            
+            # Metrics Row
+            col1, col2, col3, col4 = st.columns(4)
 
-        with col1:
-            st.metric(
-                "Total Units",
-                f"{int(total_row['No of Units']):,}",
-                delta="Cumulative total"
-            )
+            with col1:
+                st.metric(
+                    "Total Units",
+                    f"{int(totals['No of Units'])}",
+                    delta="Total units"
+                )
 
-        with col2:
-            st.metric(
-                "Total Consideration",
-                f"₹{float(total_row['Total Consideration']):.1f}Cr",
-                delta="Total value"
-            )
+            with col2:
+                st.metric(
+                    "Total Consideration",
+                    f"₹{float(totals['Total Consideration']):.1f}Cr",
+                    delta="Sales value"
+                )
 
-        with col3:
-            collection_percentage = (float(total_row['Amt Received (Excl Tax)']) / 
-                                  float(total_row['Total Consideration']) * 100)
-            st.metric(
-                "Collection Achievement",
-                f"{collection_percentage:.1f}%",
-                delta=f"₹{float(total_row['Amt Received (Excl Tax)']):.1f}Cr collected"
-            )
+            with col3:
+                received = float(totals['Amt Received (Excl Tax)'])
+                consideration = float(totals['Total Consideration'])
+                collection_percentage = (received / consideration * 100)
+                st.metric(
+                    "Collection Achievement",
+                    f"{collection_percentage:.1f}%",
+                    delta=f"₹{received:.1f}Cr collected"
+                )
 
-        with col4:
-            st.metric(
-                "Total Area",
-                f"{float(total_row['Saleable Area']):,.0f} sq.ft",
-                delta=f"{float(total_row['Saleable Area'])/float(total_row['No of Units']):,.0f} avg"
-            )
+            with col4:
+                area = float(totals['Saleable Area'])
+                units = float(totals['No of Units'])
+                st.metric(
+                    "Total Area",
+                    f"{area:,.0f} sq.ft",
+                    delta=f"{area/units:,.0f} avg"
+                )
+
+        except Exception as e:
+            st.error(f"Error calculating metrics: {str(e)}")
 
         # Unit Distribution
         st.markdown("---")
