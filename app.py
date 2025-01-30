@@ -202,6 +202,13 @@ def process_dataframe(df, sheet_name):
                          'Area', 'BSP', 'Collection', 'Sale Consideration']
         df = clean_numeric_columns(df, numeric_columns)
 
+        # Add derived columns
+        if all(col in df.columns for col in ['Current collection', 'Required Collection']):
+            df['Collection Percentage'] = (df['Current collection'] / df['Required Collection'] * 100).clip(0, 100)
+            df['Collection Shortfall'] = df['Required Collection'] - df['Current collection']
+            df['Collection Status'] = np.where(df['Collection Percentage'] >= 100, 'Met Target',
+                                    np.where(df['Collection Percentage'] >= 75, 'Near Target', 'Below Target'))
+
         return df
 
     except Exception as e:
@@ -250,6 +257,24 @@ if uploaded_file is not None:
                 'Sales Summary'
             )
 
+            # Get latest status from monthly data
+            monthly_df['Month No'] = pd.to_numeric(monthly_df['Month No'], errors='coerce')
+            # Rename Unit to Apt No for consistency
+            monthly_df = monthly_df.rename(columns={'Unit': 'Apt No'})
+            latest_status = (monthly_df.sort_values('Month No', ascending=False)
+                           .groupby(['Apt No', 'Tower'])
+                           .first()
+                           .reset_index()[['Apt No', 'Tower', 'Cancellation / Transfer']])
+
+            # Merge latest status with collection data
+            collection_df = collection_df.merge(
+                latest_status,
+                on=['Apt No', 'Tower'],
+                how='left'
+            )
+            # Fill any missing status with 'NEW SALE' as default
+            collection_df['Cancellation / Transfer'] = collection_df['Cancellation / Transfer'].fillna('NEW SALE')
+
             # Store in session state
             st.session_state.data_loaded = True
             st.session_state.collection_df = collection_df
@@ -269,7 +294,6 @@ if st.session_state.data_loaded:
         st.sidebar.title("Filters")
 
         collection_df = st.session_state.collection_df
-        monthly_df = st.session_state.monthly_df
         summary_df = st.session_state.summary_df
 
         # Get unique values for filters
@@ -310,45 +334,41 @@ if st.session_state.data_loaded:
         if status_filter:
             df = df[df['Cancellation / Transfer'].isin(status_filter)]
 
-        # Get latest summary totals for metrics
-        try:
-            total_row = summary_df[summary_df['Type'].str.contains('Total', na=False)].iloc[-1]
-            
-            # Metrics Row
-            col1, col2, col3, col4 = st.columns(4)
+        # Get latest summary totals
+        total_row = summary_df[summary_df['Type'].str.contains('Total', na=False)].iloc[-1]
+        
+        # Metrics Row
+        col1, col2, col3, col4 = st.columns(4)
 
-            with col1:
-                st.metric(
-                    "Total Units",
-                    f"{int(total_row['No of Units']):,}",
-                    delta="Cumulative total"
-                )
+        with col1:
+            st.metric(
+                "Total Units",
+                f"{int(total_row['No of Units']):,}",
+                delta="Cumulative total"
+            )
 
-            with col2:
-                st.metric(
-                    "Total Consideration",
-                    f"₹{float(total_row['Total Consideration']):.1f}Cr",
-                    delta="Total value"
-                )
+        with col2:
+            st.metric(
+                "Total Consideration",
+                f"₹{float(total_row['Total Consideration']):.1f}Cr",
+                delta="Total value"
+            )
 
-            with col3:
-                collection_percentage = (float(total_row['Amt Received (Excl Tax)']) / 
-                                      float(total_row['Total Consideration']) * 100)
-                st.metric(
-                    "Collection Achievement",
-                    f"{collection_percentage:.1f}%",
-                    delta=f"₹{float(total_row['Amt Received (Excl Tax)']):.1f}Cr collected"
-                )
+        with col3:
+            collection_percentage = (float(total_row['Amt Received (Excl Tax)']) / 
+                                  float(total_row['Total Consideration']) * 100)
+            st.metric(
+                "Collection Achievement",
+                f"{collection_percentage:.1f}%",
+                delta=f"₹{float(total_row['Amt Received (Excl Tax)']):.1f}Cr collected"
+            )
 
-            with col4:
-                avg_area = float(total_row['Saleable Area'])/float(total_row['No of Units'])
-                st.metric(
-                    "Total Area",
-                    f"{float(total_row['Saleable Area']):,.0f} sq.ft",
-                    delta=f"{avg_area:,.0f} avg"
-                )
-        except Exception as e:
-            st.error(f"Error calculating metrics: {str(e)}")
+        with col4:
+            st.metric(
+                "Total Area",
+                f"{float(total_row['Saleable Area']):,.0f} sq.ft",
+                delta=f"{float(total_row['Saleable Area'])/float(total_row['No of Units']):,.0f} avg"
+            )
 
         # Unit Distribution
         st.markdown("---")
@@ -485,11 +505,8 @@ if st.session_state.data_loaded:
         st.markdown("---")
         st.markdown('<p class="section-title">Monthly Trends</p>', unsafe_allow_html=True)
 
-        # Sort monthly_filtered by Month No for proper trend display
-        monthly_filtered = monthly_filtered.sort_values('Month No')
-
         # Create separate trends for sales, transfers, and cancellations
-        monthly_stats = monthly_filtered.groupby(['Month No', 'Cancellation / Transfer']).size().reset_index(name='Count')
+        monthly_stats = monthly_df.groupby(['Month No', 'Cancellation / Transfer']).size().reset_index(name='Count')
 
         fig_monthly = px.line(
             monthly_stats,
@@ -508,7 +525,7 @@ if st.session_state.data_loaded:
             showlegend=True,
             xaxis=dict(
                 tickmode='linear',
-                dtick=1  # Show every month number
+                dtick=1
             )
         )
         st.plotly_chart(fig_monthly, use_container_width=True)
@@ -580,7 +597,7 @@ if st.session_state.data_loaded:
             st.download_button(
                 label="Download Filtered Data as CSV",
                 data=csv,
-                file_name=f"real_estatedata{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"real_estate_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
             )
 
@@ -601,7 +618,7 @@ if st.session_state.data_loaded:
             st.download_button(
                 label="Download Summary Statistics",
                 data=csv_summary,
-                file_name=f"summarystats{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"summary_stats_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
             )
 
