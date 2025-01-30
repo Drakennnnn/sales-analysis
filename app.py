@@ -389,9 +389,8 @@ if st.session_state.data_loaded:
             st.metric(
                 "Total Consideration",
                 f"₹{master_metrics['total_consideration']:,.0f}Cr",
-                delta=f"₹{master_metrics['total_consideration']:,.0f}Cr",
                 delta=f"₹{filtered_consideration:.1f}Cr filtered"
-            )
+           )
 
         with col3:
             st.metric(
