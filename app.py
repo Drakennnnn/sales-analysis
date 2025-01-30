@@ -379,7 +379,7 @@ if st.session_state.data_loaded:
         with col2:
             # From Report sheet Sub Total row
             total_row = report_df.iloc[-2]  # Sub Total row
-            total_consideration = total_row['Total Balance']
+            total_consideration = total_row['Total']
             monthly_sale = total_row[latest_sold_col] if latest_sold_col else 0
             st.metric(
                 "Total Consideration",
