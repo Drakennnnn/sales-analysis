@@ -20,71 +20,7 @@ COLORS = {
     'text': '#ffffff'
 }
 
-# Set page configuration
-st.set_page_config(
-    page_title="Real Estate Analytics Dashboard",
-    page_icon="🏢",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Custom CSS with dark theme
-st.markdown("""
-    <style>
-    .main { 
-        padding: 0rem 1rem;
-        color: white;
-    }
-    .stSelectbox { margin-bottom: 1rem; }
-    .plot-container {
-        margin-bottom: 2rem;
-        background-color: rgba(0,0,0,0) !important;
-        padding: 1rem;
-        border-radius: 0.5rem;
-    }
-    .custom-metric {
-        background-color: rgba(255,255,255,0.1);
-        padding: 1rem;
-        border-radius: 0.5rem;
-    }
-    .section-title {
-        font-size: 1.5rem;
-        font-weight: bold;
-        margin-bottom: 1rem;
-        color: #ffffff;
-    }
-    .dataframe {
-        font-size: 12px;
-        color: white !important;
-    }
-    .stDataFrame {
-        background-color: rgba(0,0,0,0) !important;
-        border-radius: 0.5rem;
-        padding: 1rem;
-    }
-    div[data-testid="stMetricValue"] {
-        font-size: 2rem;
-        color: white !important;
-    }
-    .stAlert {
-        border-radius: 0.5rem;
-    }
-    .plot-container > div {
-        border-radius: 0.5rem;
-    }
-    div.css-12w0qpk.e1tzin5v1 {
-        background-color: rgba(255,255,255,0.1);
-        border-radius: 0.5rem;
-        padding: 1rem;
-    }
-    div.css-1r6slb0.e1tzin5v2 {
-        background-color: rgba(255,255,255,0.1);
-        border-radius: 0.5rem;
-        padding: 1rem;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
+# Helper functions remain the same
 def safe_string_handling(value):
     """Safely convert any value to string"""
     if pd.isna(value):
@@ -164,10 +100,8 @@ def normalize_status(status):
 def clean_numeric_columns(df, numeric_columns):
     """Clean numeric columns while safely handling datetime columns"""
     for col in df.columns:
-        # Skip datetime columns
         if pd.api.types.is_datetime64_any_dtype(df[col]) or isinstance(col, datetime):
             continue
-        # Process numeric columns
         if isinstance(col, str) and any(num_col.lower() in col.lower() for num_col in numeric_columns):
             df[col] = df[col].apply(clean_numeric)
     return df
@@ -176,18 +110,13 @@ def process_dataframe(df, sheet_name):
     """Process and clean dataframe"""
     try:
         df = df.copy()
-
-        # Basic cleaning
         df = df.replace([np.inf, -np.inf], np.nan)
 
-        # Skip datetime handling for Sales Analysis sheet
         if sheet_name != 'Sales Analysis':
-            # Convert datetime columns to string format first
             date_columns = df.select_dtypes(include=['datetime64']).columns
             for col in date_columns:
                 df[col] = df[col].dt.strftime('%Y-%m-%d')
 
-        # Normalize string columns
         if 'BHK' in df.columns:
             df['BHK'] = df['BHK'].apply(normalize_bhk)
         if 'Tower' in df.columns:
@@ -197,12 +126,10 @@ def process_dataframe(df, sheet_name):
         if 'New/Old' in df.columns:
             df['New/Old'] = df['New/Old'].apply(lambda x: x.upper() if isinstance(x, str) else x)
 
-        # Clean numeric columns safely
         numeric_columns = ['Total Consideration', 'Required Collection', 'Current collection', 
                          'Area', 'BSP', 'Collection', 'Sale Consideration']
         df = clean_numeric_columns(df, numeric_columns)
 
-        # Add derived columns
         if all(col in df.columns for col in ['Current collection', 'Required Collection']):
             df['Collection Percentage'] = (df['Current collection'] / df['Required Collection'] * 100).clip(0, 100)
             df['Collection Shortfall'] = df['Required Collection'] - df['Current collection']
@@ -215,11 +142,115 @@ def process_dataframe(df, sheet_name):
         st.error(f"Error processing {sheet_name}: {str(e)}")
         return pd.DataFrame()
 
+def get_master_metrics(summary_df, collection_df, sales_analysis_df):
+    """Extract master metrics from the data"""
+    try:
+        # Get report month from Sales Analysis sheet
+        report_month = sales_analysis_df.columns[-1]  # Assumes month is in last column
+        
+        # Get total units and area from Sales Summary
+        total_units = summary_df.loc[summary_df['Phase'] != 'Total', 'No of Units'].sum()
+        total_area = summary_df.loc[summary_df['Phase'] != 'Total', 'Saleable Area'].sum()
+        
+        # Get collection metrics from Collection Analysis - look for 'Grand Total' row
+        if 'Grand Total' in collection_df.index:
+            grand_total_idx = collection_df.index[collection_df.index == 'Grand Total'][0]
+        else:
+            grand_total_idx = collection_df.index[-1]  # Fallback to last row
+            
+        total_consideration = collection_df.loc[grand_total_idx, 'Total Consideration']
+        
+        # Format month for collection column name
+        collection_month = report_month.replace('/', '-') 
+        collection_column = f'Collections till {collection_month}'
+        total_collection = collection_df.loc[grand_total_idx, collection_column]
+        total_balance = collection_df.loc[grand_total_idx, 'Total Balance']
+        
+        collection_achievement = (total_collection / total_balance * 100)
+        collection_shortfall = total_balance - total_collection
+
+        return {
+            'total_units': total_units,
+            'total_consideration': total_consideration,
+            'collection_achievement': collection_achievement,
+            'collection_shortfall': collection_shortfall,
+            'total_area': total_area,
+            'report_month': report_month
+        }
+    except Exception as e:
+        st.error(f"Error calculating master metrics: {str(e)}")
+        return None
+
+# Set page configuration with dynamic title
+st.set_page_config(
+    page_title="Real Estate Analytics Dashboard",
+    page_icon="🏢",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS remains the same
+st.markdown("""
+    <style>
+    .main { 
+        padding: 0rem 1rem;
+        color: white;
+    }
+    .stSelectbox { margin-bottom: 1rem; }
+    .plot-container {
+        margin-bottom: 2rem;
+        background-color: rgba(0,0,0,0) !important;
+        padding: 1rem;
+        border-radius: 0.5rem;
+    }
+    .custom-metric {
+        background-color: rgba(255,255,255,0.1);
+        padding: 1rem;
+        border-radius: 0.5rem;
+    }
+    .section-title {
+        font-size: 1.5rem;
+        font-weight: bold;
+        margin-bottom: 1rem;
+        color: #ffffff;
+    }
+    .dataframe {
+        font-size: 12px;
+        color: white !important;
+    }
+    .stDataFrame {
+        background-color: rgba(0,0,0,0) !important;
+        border-radius: 0.5rem;
+        padding: 1rem;
+    }
+    div[data-testid="stMetricValue"] {
+        font-size: 2rem;
+        color: white !important;
+    }
+    .stAlert {
+        border-radius: 0.5rem;
+    }
+    .plot-container > div {
+        border-radius: 0.5rem;
+    }
+    div.css-12w0qpk.e1tzin5v1 {
+        background-color: rgba(255,255,255,0.1);
+        border-radius: 0.5rem;
+        padding: 1rem;
+    }
+    div.css-1r6slb0.e1tzin5v2 {
+        background-color: rgba(255,255,255,0.1);
+        border-radius: 0.5rem;
+        padding: 1rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 # Initialize session state
 if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
 
-# Main dashboard title
+# Main dashboard title (will be updated with month after data load)
 st.title("Real Estate Analytics Dashboard")
 st.markdown("---")
 
@@ -231,7 +262,7 @@ if uploaded_file is not None:
         with st.spinner('Processing data...'):
             # Read Excel file
             excel_file = pd.ExcelFile(uploaded_file)
-            required_sheets = ['Collection Analysis', 'Sales Analysis', 'Monthly Data', 'Sales Summary', 'Report']
+            required_sheets = ['Collection Analysis', 'Sales Analysis', 'Monthly Data', 'Sales Summary']
 
             # Verify required sheets
             missing_sheets = [sheet for sheet in required_sheets if sheet not in excel_file.sheet_names]
@@ -256,14 +287,18 @@ if uploaded_file is not None:
                 pd.read_excel(excel_file, 'Sales Summary', skiprows=2),
                 'Sales Summary'
             )
-            report_df = process_dataframe(
-                pd.read_excel(excel_file, 'Report', skiprows=2),
-                'Report'
-            )
+
+            # Get master metrics
+            master_metrics = get_master_metrics(summary_df, collection_df, sales_df)
+            if master_metrics is None:
+                st.error("Failed to calculate master metrics")
+                st.stop()
+
+            # Update title with report month
+            st.title(f"Real Estate Analytics Dashboard - {master_metrics['report_month']}")
 
             # Get latest status from monthly data
             monthly_df['Month No'] = pd.to_numeric(monthly_df['Month No'], errors='coerce')
-            # Rename Unit to Apt No for consistency
             monthly_df = monthly_df.rename(columns={'Unit': 'Apt No'})
             latest_status = (monthly_df.sort_values('Month No', ascending=False)
                            .groupby(['Apt No', 'Tower'])
@@ -276,7 +311,6 @@ if uploaded_file is not None:
                 on=['Apt No', 'Tower'],
                 how='left'
             )
-            # Fill any missing status with 'NEW SALE' as default
             collection_df['Cancellation / Transfer'] = collection_df['Cancellation / Transfer'].fillna('NEW SALE')
 
             # Store in session state
@@ -285,7 +319,7 @@ if uploaded_file is not None:
             st.session_state.sales_df = sales_df
             st.session_state.monthly_df = monthly_df
             st.session_state.summary_df = summary_df
-            st.session_state.report_df = report_df
+            st.session_state.master_metrics = master_metrics
 
             st.success("Data loaded successfully!")
 
@@ -295,11 +329,12 @@ if uploaded_file is not None:
 
 if st.session_state.data_loaded:
     try:
-        # Sidebar filters
+        # Sidebar filters remain the same
         st.sidebar.title("Filters")
 
         collection_df = st.session_state.collection_df
         monthly_df = st.session_state.monthly_df
+        master_metrics = st.session_state.master_metrics
 
         # Get unique values for filters
         towers = sorted([t for t in collection_df['Tower'].unique() 
@@ -328,16 +363,7 @@ if st.session_state.data_loaded:
                 default=["NEW SALE"]
             )
 
-        # Apply filters to monthly data
-        monthly_filtered = monthly_df.copy()
-        if selected_tower != "All Towers":
-            monthly_filtered = monthly_filtered[monthly_filtered['Tower'] == selected_tower]
-        if selected_bhk != "All BHK":
-            monthly_filtered = monthly_filtered[monthly_filtered['BHK'] == selected_bhk]
-        if status_filter:
-            monthly_filtered = monthly_filtered[monthly_filtered['Cancellation / Transfer'].isin(status_filter)]
-
-        # Apply filters to collection data
+        # Apply filters to data
         df = collection_df.copy()
         if selected_tower != "All Towers":
             df = df[df['Tower'] == selected_tower]
@@ -348,76 +374,45 @@ if st.session_state.data_loaded:
         if status_filter:
             df = df[df['Cancellation / Transfer'].isin(status_filter)]
 
-        # Get all required dataframes from session state
-        sales_df = st.session_state.sales_df
-        summary_df = st.session_state.summary_df
-        report_df = st.session_state.report_df
-
-        # Get latest month columns dynamically
-        collection_cols = [col for col in report_df.columns if 'Collections till' in col]
-        latest_collection_col = collection_cols[-1] if collection_cols else None
-
-        demand_cols = [col for col in report_df.columns if 'Cum. Demand raised in' in col]
-        latest_demand_col = demand_cols[-1] if demand_cols else None
-
-        sold_cols = [col for col in report_df.columns if 'Sold in' in col]
-        latest_sold_col = sold_cols[-1] if sold_cols else None
-
-        # Metrics Row
+        # Metrics Row with master metrics
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-            total_row = summary_df[summary_df['Total'].notna()].iloc[-1]
-            total_units = total_row['Total']
-            unsold_percent = total_row['% Unsold'] if '% Unsold' in summary_df.columns else 0
             st.metric(
                 "Total Units",
-                f"{int(total_units):,}",
-                delta=f"{float(unsold_percent):.2f}% unsold"
+                f"{master_metrics['total_units']:,}",
+                delta=f"{len(df)/len(collection_df)*100:.1f}% in filter"
             )
 
         with col2:
-            # From Report sheet Sub Total row
-            total_row = report_df.iloc[-2]  # Sub Total row
-            total_consideration = total_row['Total Consideration']
-            monthly_sale = total_row[latest_sold_col] if latest_sold_col else 0
             st.metric(
                 "Total Consideration",
-                f"₹{float(total_consideration):.1f}Cr",
-                delta=f"₹{float(monthly_sale):.1f}Cr this month"
+                f"₹{master_metrics['total_consideration']:,.0f}Cr",
+                delta=f"₹{master_metrics['total_consideration']:,.0f}Cr",
+                delta=f"₹{df['Total Consideration'].sum()/1e7:.1f}Cr in filter"
             )
 
         with col3:
-            # From Report sheet Sub Total row
-            collection_data = report_df.iloc[-2]  # Sub Total row
-            total_collection = collection_data[latest_collection_col] if latest_collection_col else 0
-            total_demand = collection_data[latest_demand_col] if latest_demand_col else 0
-            collection_shortfall = collection_data['Balance Due']
-            collection_percentage = (float(total_collection)/float(total_demand) * 100) if float(total_demand) else 0
             st.metric(
                 "Collection Achievement",
-                f"{collection_percentage:.1f}%",
-                delta=f"₹{float(collection_shortfall):.1f}Cr pending"
+                f"{master_metrics['collection_achievement']:.1f}%",
+                delta=f"₹{master_metrics['collection_shortfall']/1e7:.1f}Cr pending"
             )
 
         with col4:
-            # From Sales Summary total saleable and sold areas
-            total_area = summary_df['Saleable Area'].sum()
-            sold_area = summary_df[summary_df['Status'] == 'Sold']['Saleable Area'].sum() if 'Status' in summary_df.columns else 0
             st.metric(
                 "Total Area",
-                f"{float(total_area):,.0f} sq.ft",
-                delta=f"{float(sold_area):,.0f} sq.ft sold"
-            )    
+                f"{master_metrics['total_area']:,.0f} sq.ft",
+                delta=f"{df['Area'].mean():,.0f} avg in filter"
+            )
 
-        # Unit Distribution
+        # Rest of the visualizations remain the same
         st.markdown("---")
         st.markdown('<p class="section-title">Unit Distribution Analysis</p>', unsafe_allow_html=True)
 
         col1, col2 = st.columns(2)
 
         with col1:
-            # Modified Tower Distribution to handle multiple statuses
             tower_status_dist = df[df['Tower'] != "Not Specified"].groupby('Tower').size().reset_index()
             tower_status_dist.columns = ['Tower', 'Count']
 
@@ -448,7 +443,6 @@ if st.session_state.data_loaded:
             st.plotly_chart(fig_tower, use_container_width=True)
 
         with col2:
-            # Enhanced BHK Distribution
             bhk_dist = df[df['BHK'] != "Not Specified"]['BHK'].value_counts()
             fig_bhk = go.Figure(data=[go.Pie(
                 labels=bhk_dist.index,
@@ -473,7 +467,6 @@ if st.session_state.data_loaded:
         col1, col2 = st.columns(2)
 
         with col1:
-            # Enhanced Collection vs Required
             tower_collection = df[df['Tower'] != "Not Specified"].groupby('Tower').agg({
                 'Required Collection': 'sum',
                 'Current collection': 'sum'
@@ -498,12 +491,12 @@ if st.session_state.data_loaded:
                 plot_bgcolor=COLORS['background'],
                 paper_bgcolor=COLORS['background'],
                 title_x=0.5,
-                yaxis_title="Amount (Cr)"
+                yaxis_title="Amount (Cr)",
+                font_color='#ffffff'
             )
             st.plotly_chart(fig_collection, use_container_width=True)
 
         with col2:
-            # Enhanced Collection Efficiency
             collection_status = df['Collection Status'].value_counts()
             fig_efficiency = go.Figure(data=[go.Pie(
                 labels=collection_status.index,
@@ -515,7 +508,8 @@ if st.session_state.data_loaded:
                 title="Collection Status Distribution",
                 title_x=0.5,
                 plot_bgcolor=COLORS['background'],
-                paper_bgcolor=COLORS['background']
+                paper_bgcolor=COLORS['background'],
+                font_color='#ffffff'
             )
             st.plotly_chart(fig_efficiency, use_container_width=True)
 
@@ -537,18 +531,26 @@ if st.session_state.data_loaded:
                 paper_bgcolor=COLORS['background'],
                 title_x=0.5,
                 yaxis_title="BSP (₹/sq ft)",
-                showlegend=True
+                showlegend=True,
+                font_color='#ffffff'
             )
             st.plotly_chart(fig_bsp, use_container_width=True)
 
-        # Monthly Analysis with Transfer/Cancel Focus
+        # Monthly Analysis
         st.markdown("---")
         st.markdown('<p class="section-title">Monthly Trends</p>', unsafe_allow_html=True)
 
-        # Sort monthly_filtered by Month No for proper trend display
-        monthly_filtered = monthly_filtered.sort_values('Month No')
+        # Apply filters to monthly data
+        monthly_filtered = monthly_df.copy()
+        if selected_tower != "All Towers":
+            monthly_filtered = monthly_filtered[monthly_filtered['Tower'] == selected_tower]
+        if selected_bhk != "All BHK":
+            monthly_filtered = monthly_filtered[monthly_filtered['BHK'] == selected_bhk]
+        if status_filter:
+            monthly_filtered = monthly_filtered[monthly_filtered['Cancellation / Transfer'].isin(status_filter)]
 
-        # Create separate trends for sales, transfers, and cancellations
+        # Sort by Month No and create monthly stats
+        monthly_filtered = monthly_filtered.sort_values('Month No')
         monthly_stats = monthly_filtered.groupby(['Month No', 'Cancellation / Transfer']).size().reset_index(name='Count')
 
         fig_monthly = px.line(
@@ -566,18 +568,18 @@ if st.session_state.data_loaded:
             xaxis_title="Month Number",
             yaxis_title="Number of Transactions",
             showlegend=True,
+            font_color='#ffffff',
             xaxis=dict(
                 tickmode='linear',
-                dtick=1  # Show every month number
+                dtick=1
             )
         )
         st.plotly_chart(fig_monthly, use_container_width=True)
 
-        # Detailed Data Table with Enhanced Filtering
+        # Detailed Data Table
         st.markdown("---")
         st.markdown('<p class="section-title">Detailed Unit Information</p>', unsafe_allow_html=True)
 
-        # Additional table filters
         col1, col2 = st.columns(2)
         with col1:
             min_collection = st.number_input(
@@ -594,13 +596,11 @@ if st.session_state.data_loaded:
                 value=100
             )
 
-        # Apply additional filters to table data
         table_df = df[
             (df['Collection Percentage'] >= min_collection) &
             (df['Collection Percentage'] <= max_collection)
         ]
 
-        # Column selector
         default_columns = ['Apt No', 'BHK', 'Tower', 'Area', 'Cancellation / Transfer', 
                           'Total Consideration', 'Current collection', 'Collection Percentage',
                           'Collection Status', 'Customer Name', 'New/Old']
@@ -613,7 +613,6 @@ if st.session_state.data_loaded:
         )
 
         if selected_columns:
-            # Format numeric columns
             formatted_df = table_df[selected_columns].copy()
             for col in ['Total Consideration', 'Current collection']:
                 if col in selected_columns:
@@ -629,7 +628,7 @@ if st.session_state.data_loaded:
                 hide_index=True
             )
 
-        # Download section
+        # Export Section
         st.markdown("---")
         st.markdown('<p class="section-title">Export Data</p>', unsafe_allow_html=True)
 
@@ -640,7 +639,7 @@ if st.session_state.data_loaded:
             st.download_button(
                 label="Download Filtered Data as CSV",
                 data=csv,
-                file_name=f"real_estatedata{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"real_estate_data_{master_metrics['report_month'].replace('/', '_')}.csv",
                 mime="text/csv",
             )
 
@@ -661,15 +660,15 @@ if st.session_state.data_loaded:
             st.download_button(
                 label="Download Summary Statistics",
                 data=csv_summary,
-                file_name=f"summarystats{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"summary_stats_{master_metrics['report_month'].replace('/', '_')}.csv",
                 mime="text/csv",
             )
 
         # Footer
         st.markdown("---")
-        st.markdown(f"Dashboard last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        st.markdown(f"Dashboard last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Reporting Period: {master_metrics['report_month']}")
 
-        # Add cache clearing button in sidebar
+        # Cache clearing button in sidebar
         if st.sidebar.button("Clear Cache and Reset"):
             st.cache_data.clear()
             st.session_state.data_loaded = False
@@ -680,7 +679,7 @@ if st.session_state.data_loaded:
         st.stop()
 
 else:
-    # Show welcome message
+    # Welcome message
     st.markdown("""
         <div style="text-align: center; padding: 2rem;">
             <h2>Welcome to the Real Estate Analytics Dashboard</h2>
