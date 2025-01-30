@@ -385,11 +385,12 @@ if st.session_state.data_loaded:
             )
 
         with col2:
+            filtered_consideration = df['Total Consideration'].sum()/1e7
             st.metric(
                 "Total Consideration",
                 f"₹{master_metrics['total_consideration']:,.0f}Cr",
                 delta=f"₹{master_metrics['total_consideration']:,.0f}Cr",
-                delta=f"₹{df['Total Consideration'].sum()/1e7:.1f}Cr in filter"
+                delta=f"₹{filtered_consideration:.1f}Cr filtered"
             )
 
         with col3:
