@@ -294,7 +294,7 @@ if st.session_state.data_loaded:
         st.sidebar.title("Filters")
 
         collection_df = st.session_state.collection_df
-        summary_df = st.session_state.summary_df
+        monthly_df = st.session_state.monthly_df
 
         # Get unique values for filters
         towers = sorted([t for t in collection_df['Tower'].unique() 
@@ -323,6 +323,15 @@ if st.session_state.data_loaded:
                 default=["NEW SALE"]
             )
 
+        # Apply filters to monthly data
+        monthly_filtered = monthly_df.copy()
+        if selected_tower != "All Towers":
+            monthly_filtered = monthly_filtered[monthly_filtered['Tower'] == selected_tower]
+        if selected_bhk != "All BHK":
+            monthly_filtered = monthly_filtered[monthly_filtered['BHK'] == selected_bhk]
+        if status_filter:
+            monthly_filtered = monthly_filtered[monthly_filtered['Cancellation / Transfer'].isin(status_filter)]
+
         # Apply filters to collection data
         df = collection_df.copy()
         if selected_tower != "All Towers":
@@ -334,50 +343,41 @@ if st.session_state.data_loaded:
         if status_filter:
             df = df[df['Cancellation / Transfer'].isin(status_filter)]
 
-        # Get latest summary totals
-        # Get latest summary totals
-        try:
-            # Filter for the 'Total' row (Grand Total)
-            totals = summary_df[summary_df['Total'].str.contains('Total', na=False)].iloc[-1]
-            
-            # Metrics Row
-            col1, col2, col3, col4 = st.columns(4)
+        # Metrics Row
+        col1, col2, col3, col4 = st.columns(4)
 
-            with col1:
-                st.metric(
-                    "Total Units",
-                    f"{int(totals['No of Units'])}",
-                    delta="Total units"
-                )
+        with col1:
+            st.metric(
+                "Total Units",
+                f"{len(df):,}",
+                delta=f"{len(df)/len(collection_df)*100:.1f}% of total"
+            )
 
-            with col2:
-                st.metric(
-                    "Total Consideration",
-                    f"₹{float(totals['Total Consideration']):.1f}Cr",
-                    delta="Sales value"
-                )
+        with col2:
+            total_consideration = df['Total Consideration'].sum()
+            st.metric(
+                "Total Consideration",
+                f"₹{total_consideration:,.0f}Cr",
+                delta=f"₹{total_consideration/1e7:.1f}Cr"
+            )
 
-            with col3:
-                received = float(totals['Amt Received (Excl Tax)'])
-                consideration = float(totals['Total Consideration'])
-                collection_percentage = (received / consideration * 100)
-                st.metric(
-                    "Collection Achievement",
-                    f"{collection_percentage:.1f}%",
-                    delta=f"₹{received:.1f}Cr collected"
-                )
+        with col3:
+            current_collection = df['Current collection'].sum()
+            required_collection = df['Required Collection'].sum()
+            collection_percentage = (current_collection / required_collection * 100) if required_collection else 0
+            st.metric(
+                "Collection Achievement",
+                f"{collection_percentage:.1f}%",
+                delta=f"₹{(required_collection - current_collection)/1e7:.1f}Cr pending"
+            )
 
-            with col4:
-                area = float(totals['Saleable Area'])
-                units = float(totals['No of Units'])
-                st.metric(
-                    "Total Area",
-                    f"{area:,.0f} sq.ft",
-                    delta=f"{area/units:,.0f} avg"
-                )
-
-        except Exception as e:
-            st.error(f"Error calculating metrics: {str(e)}")
+        with col4:
+            total_area = df['Area'].sum()
+            st.metric(
+                "Total Area",
+                f"{total_area:,.0f} sq.ft",
+                delta=f"{df['Area'].mean():,.0f} avg"
+            )
 
         # Unit Distribution
         st.markdown("---")
@@ -514,8 +514,11 @@ if st.session_state.data_loaded:
         st.markdown("---")
         st.markdown('<p class="section-title">Monthly Trends</p>', unsafe_allow_html=True)
 
+        # Sort monthly_filtered by Month No for proper trend display
+        monthly_filtered = monthly_filtered.sort_values('Month No')
+
         # Create separate trends for sales, transfers, and cancellations
-        monthly_stats = monthly_df.groupby(['Month No', 'Cancellation / Transfer']).size().reset_index(name='Count')
+        monthly_stats = monthly_filtered.groupby(['Month No', 'Cancellation / Transfer']).size().reset_index(name='Count')
 
         fig_monthly = px.line(
             monthly_stats,
@@ -534,7 +537,7 @@ if st.session_state.data_loaded:
             showlegend=True,
             xaxis=dict(
                 tickmode='linear',
-                dtick=1
+                dtick=1  # Show every month number
             )
         )
         st.plotly_chart(fig_monthly, use_container_width=True)
@@ -606,7 +609,7 @@ if st.session_state.data_loaded:
             st.download_button(
                 label="Download Filtered Data as CSV",
                 data=csv,
-                file_name=f"real_estate_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"real_estatedata{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
             )
 
@@ -627,7 +630,7 @@ if st.session_state.data_loaded:
             st.download_button(
                 label="Download Summary Statistics",
                 data=csv_summary,
-                file_name=f"summary_stats_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"summarystats{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
             )
 
