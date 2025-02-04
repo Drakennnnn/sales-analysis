@@ -266,14 +266,18 @@ def main():
                 )
 
                 # Get latest status from monthly data
-                monthly_df['Month No'] = pd.to_numeric(monthly_df['Month No'], errors='coerce')
-                # Rename Unit to Apt No for consistency
+                if 'Month No' in monthly_df.columns:
+                    monthly_df['Month No'] = pd.to_numeric(monthly_df['Month No'], errors='coerce')
+                else:
+                    st.error("Month No column not found in Monthly Data sheet")
+                    st.stop()
+
                 monthly_df = monthly_df.rename(columns={'Unit': 'Apt No'})
                 latest_status = (monthly_df.sort_values('Month No', ascending=False)
-                               .groupby(['Apt No', 'Tower'])
-                               .first()
-                               .reset_index()[['Apt No', 'Tower', 'Cancellation / Transfer']])
-
+                                 .groupby(['Apt No', 'Tower'])
+                                 .first()
+                                 .reset_index()[['Apt No', 'Tower', 'Cancellation / Transfer']])
+                    
                 # Merge latest status with collection data
                 collection_df = collection_df.merge(
                     latest_status,
