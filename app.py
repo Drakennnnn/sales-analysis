@@ -651,7 +651,7 @@ def main():
                 formatted_df = table_df[selected_columns].copy()
                 for col in ['Total Consideration', 'Current collection']:
                     if col in selected_columns:
-                        formatted_df[col] = formatted_df[col].apply(lambda x: f"₹{x/1e7:,.2f}Cr")
+                        formatted_df[col] = formatted_df[col].apply(lambda x: f"₹{x:,.2f}")
                 if 'Collection Percentage' in selected_columns:
                     formatted_df['Collection Percentage'] = formatted_df['Collection Percentage'].apply(lambda x: f"{x:.1f}%")
                 if 'Area' in selected_columns:
