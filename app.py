@@ -253,25 +253,24 @@ def main():
 
                 # Process each sheet
                 collection_df = process_dataframe(
-                    pd.read_excel(excel_file, 'Collection Analysis'),
+                    pd.read_excel(excel_file, 'Collection Analysis', skiprows=3),  # Skip 3 header rows
                     'Collection Analysis'
                 )
-                
+
                 sales_df = process_dataframe(
-                    pd.read_excel(excel_file, 'Sales Analysis'),
+                    pd.read_excel(excel_file, 'Sales Analysis', skiprows=3),  # Skip 3 header rows
                     'Sales Analysis'
                 )
-                
+
                 monthly_df = process_dataframe(
-                    pd.read_excel(excel_file, 'Monthly Data', skiprows=2),
+                    pd.read_excel(excel_file, 'Monthly Data', skiprows=2),  # Skip 2 header rows
                     'Monthly Data'
                 )
-                
+
                 summary_df = process_dataframe(
-                    pd.read_excel(excel_file, 'Sales Summary'),
+                    pd.read_excel(excel_file, 'Sales Summary', skiprows=2),  # Skip 2 header rows
                     'Sales Summary'
                 )
-
                 # Get latest status from monthly data
                 if 'Month No' in monthly_df.columns:
                     monthly_df['Month No'] = pd.to_numeric(monthly_df['Month No'], errors='coerce')
