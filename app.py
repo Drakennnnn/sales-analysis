@@ -396,10 +396,10 @@ def main():
 
             # Get summary totals from actual data
             summary_totals = st.session_state.summary_df[st.session_state.summary_df['Phase'] == 'Total'].iloc[0]
-            total_actual_units = summary_totals['No of Units']
-            total_actual_area = summary_totals['Saleable Area']
-            total_actual_consideration = summary_totals['AV (Excl Tax)']
-            total_actual_collection = summary_totals['Amt Received (Excl Tax)']
+            total_actual_units = summary_totals['No of Units']  # Exact column name
+            total_actual_area = summary_totals['Saleable Area']  # Exact column name
+            total_actual_consideration = summary_totals['AV (Excl Tax)']  # Exact column name
+            total_actual_collection = summary_totals['Amt Received (Excl Tax)']  # Exact column name
 
             # Metrics Row
             col1, col2, col3, col4 = st.columns(4)
