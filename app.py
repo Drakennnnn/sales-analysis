@@ -256,7 +256,7 @@ def main():
                 )
                 
                 monthly_df = process_dataframe(
-                    pd.read_excel(excel_file, 'Monthly Data'),
+                    pd.read_excel(excel_file, 'Monthly Data', skiprows=2),
                     'Monthly Data'
                 )
                 
