@@ -215,8 +215,12 @@ def process_dataframe(df, sheet_name):
 
         # Add derived columns
         if all(col in df.columns for col in ['Current collection', 'Required Collection']):
-            df['Collection Percentage'] = (df['Current collection'] / df['Required Collection'] * 100).clip(0, 100)
-            df['Collection Shortfall'] = df['Required Collection'] - df['Current collection']
+            current = df['Current collection'].astype(float)
+            required = df['Required Collection'].astype(float)
+    
+            # Calculate percentage 
+            df['Collection Percentage'] = ((current / required) * 100).round(1).clip(0, 100)
+            df['Collection Shortfall'] = required - current
 
         return df
 
@@ -649,7 +653,7 @@ def main():
 
             if selected_columns:
                 formatted_df = table_df[selected_columns].copy()
-                for col in ['Total Consideration', 'Current collection']:
+                for col in ['Total Consideration', 'Current collection', 'Required Collection']:
                     if col in selected_columns:
                         formatted_df[col] = formatted_df[col].apply(lambda x: f"₹{x:,.2f}")
                 if 'Collection Percentage' in selected_columns:
