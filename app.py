@@ -279,11 +279,15 @@ def main():
                     st.error("Month No column not found in Monthly Data sheet")
                     st.stop()
 
+                monthly_df['Unit'] = monthly_df['Unit'].astype(str).str.strip()
+                collection_df['Apt No'] = collection_df['Apt No'].astype(str).str.strip()
+
                 monthly_df = monthly_df.rename(columns={'Unit': 'Apt No'})
+
                 latest_status = (monthly_df.sort_values('Month No', ascending=False)
-                                 .groupby(['Apt No', 'Tower'])
+                                 .groupby(['Apt No', 'Tower'], as_index=False)
                                  .first()
-                                 .reset_index()[['Apt No', 'Tower', 'Cancellation / Transfer']])
+                                 [['Apt No', 'Tower', 'Cancellation / Transfer']])
                     
                 # Merge latest status with collection data
                 collection_df = collection_df.merge(
