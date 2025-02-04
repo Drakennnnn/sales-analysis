@@ -279,15 +279,23 @@ def main():
                     st.error("Month No column not found in Monthly Data sheet")
                     st.stop()
 
-                monthly_df['Unit'] = monthly_df['Unit'].astype(str).str.strip()
-                collection_df['Apt No'] = collection_df['Apt No'].astype(str).str.strip()
+                # Clean and standardize both columns before merge with null handling
+                monthly_df['Unit'] = monthly_df['Unit'].fillna('').astype(str).str.strip()
+                collection_df['Apt No'] = collection_df['Apt No'].fillna('').astype(str).str.strip()
 
+                # Rename after cleaning
                 monthly_df = monthly_df.rename(columns={'Unit': 'Apt No'})
 
-                latest_status = (monthly_df.sort_values('Month No', ascending=False)
-                                 .groupby(['Apt No', 'Tower'], as_index=False)
-                                 .first()
-                                 [['Apt No', 'Tower', 'Cancellation / Transfer']])
+                # Create latest status with enhanced column selection
+                try:
+                    latest_status = (monthly_df.sort_values('Month No', ascending=False)
+                                    .groupby(['Apt No', 'Tower'], as_index=False)
+                                    .first()
+                                    .loc[:, ['Apt No', 'Tower', 'Cancellation / Transfer']])
+                except Exception as e:
+                    st.error(f"Error creating latest status: {str(e)}")
+                    st.write("Monthly Data columns:", monthly_df.columns.tolist())
+                    st.stop()
                     
                 # Merge latest status with collection data
                 collection_df = collection_df.merge(
