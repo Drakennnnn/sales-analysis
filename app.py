@@ -394,12 +394,19 @@ def main():
             if status_filter:
                 df = df[df['Cancellation / Transfer'].isin(status_filter)]
 
-            # Get summary totals from actual data
-            summary_totals = st.session_state.summary_df[st.session_state.summary_df['Phase'] == 'Total'].iloc[0]
-            total_actual_units = summary_totals['No of Units']  # Exact column name
-            total_actual_area = summary_totals['Saleable Area']  # Exact column name
-            total_actual_consideration = summary_totals['AV (Excl Tax)']  # Exact column name
-            total_actual_collection = summary_totals['Amt Received (Excl Tax)']  # Exact column name
+            try:
+                summary_totals = st.session_state.summary_df[st.session_state.summary_df['Phase'] == 'Total'].iloc[0]
+                # Get columns list
+                cols = st.session_state.summary_df.columns.tolist()
+                # Use last 4 columns which have cumulative values
+                total_actual_units = summary_totals[cols[-4]]  # No of Units
+                total_actual_area = summary_totals[cols[-3]]   # Saleable Area
+                total_actual_consideration = summary_totals[cols[-2]]  # AV (Excl Tax)
+                total_actual_collection = summary_totals[cols[-1]]  # Amt Received (Excl Tax)
+            except Exception as e:
+                st.error(f"Error accessing summary totals: {str(e)}")
+                st.write("Available columns:", cols)
+                st.stop()
 
             # Metrics Row
             col1, col2, col3, col4 = st.columns(4)
