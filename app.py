@@ -225,6 +225,13 @@ def process_dataframe(df, sheet_name):
         return pd.DataFrame()
 
 def main():
+    if 'data_loaded' not in st.session_state:
+        st.session_state.data_loaded = False
+        st.session_state.collection_df = None
+        st.session_state.sales_df = None
+        st.session_state.monthly_df = None
+        st.session_state.summary_df = None
+        
     st.title("Real Estate Analytics Dashboard")
     st.markdown("---")
 
