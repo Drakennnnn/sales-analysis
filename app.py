@@ -331,9 +331,26 @@ def main():
 
     if st.session_state.data_loaded:
         try:
+            # Debug section
+            if st.checkbox("Show Debug Information"):
+                st.write("### Debug Information")
+                sample_data = collection_df[['Apt No', 'Current collection', 'Required Collection', 'Collection Percentage']].head(10)
+                st.write("Sample Data and Calculations:")
+                st.write(sample_data)
+
+                st.write("\nCalculation Check:")
+                for idx, row in sample_data.iterrows():
+                    calculated = (row['Current collection'] / row['Required Collection'] * 100).round(1)
+                    st.write(f"Apt No: {row['Apt No']}")
+                    st.write(f"Current: {row['Current collection']:,.2f}")
+                    st.write(f"Required: {row['Required Collection']:,.2f}")
+                    st.write(f"Shown %: {row['Collection Percentage']}%")
+                    st.write(f"Calculated %: {calculated}%")
+                    st.write("---")
+
             # Sidebar filters
             st.sidebar.title("Filters")
-
+            
             collection_df = st.session_state.collection_df
             monthly_df = st.session_state.monthly_df
 
