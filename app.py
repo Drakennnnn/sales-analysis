@@ -217,17 +217,10 @@ def process_dataframe(df, sheet_name):
         if all(col in df.columns for col in ['Current collection', 'Required Collection']):
             current = df['Current collection'].astype(float)
             required = df['Required Collection'].astype(float)
-
-            # Debug prints to see values
-            # Debug using Streamlit
-            st.write("Debug - Sample Data:")
-            st.write("Current Collection:", current.head())
-            st.write("Required Collection:", required.head())
-            st.write("Calculated Percentages:", ((current / required) * 100).round(1).head())
-
+    
+            # Calculate percentage 
             df['Collection Percentage'] = ((current / required) * 100).round(1).clip(0, 100)
             df['Collection Shortfall'] = required - current
-
 
         return df
 
@@ -331,26 +324,9 @@ def main():
 
     if st.session_state.data_loaded:
         try:
-            # Debug section
-            if st.checkbox("Show Debug Information"):
-                st.write("### Debug Information")
-                sample_data = collection_df[['Apt No', 'Current collection', 'Required Collection', 'Collection Percentage']].head(10)
-                st.write("Sample Data and Calculations:")
-                st.write(sample_data)
-
-                st.write("\nCalculation Check:")
-                for idx, row in sample_data.iterrows():
-                    calculated = (row['Current collection'] / row['Required Collection'] * 100).round(1)
-                    st.write(f"Apt No: {row['Apt No']}")
-                    st.write(f"Current: {row['Current collection']:,.2f}")
-                    st.write(f"Required: {row['Required Collection']:,.2f}")
-                    st.write(f"Shown %: {row['Collection Percentage']}%")
-                    st.write(f"Calculated %: {calculated}%")
-                    st.write("---")
-
             # Sidebar filters
             st.sidebar.title("Filters")
-            
+
             collection_df = st.session_state.collection_df
             monthly_df = st.session_state.monthly_df
 
