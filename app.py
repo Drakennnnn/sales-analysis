@@ -217,10 +217,18 @@ def process_dataframe(df, sheet_name):
         if all(col in df.columns for col in ['Current collection', 'Required Collection']):
             current = df['Current collection'].astype(float)
             required = df['Required Collection'].astype(float)
-    
-            # Calculate percentage 
+
+            # Debug prints to see values
+            print("\nSample Calculations:")
+            sample = df[['Current collection', 'Required Collection']].head()
+            print(sample)
+            test_calc = ((current / required) * 100).round(1)
+            print("\nResulting percentages:")
+            print(test_calc.head())
+
             df['Collection Percentage'] = ((current / required) * 100).round(1).clip(0, 100)
             df['Collection Shortfall'] = required - current
+
 
         return df
 
