@@ -219,12 +219,11 @@ def process_dataframe(df, sheet_name):
             required = df['Required Collection'].astype(float)
 
             # Debug prints to see values
-            print("\nSample Calculations:")
-            sample = df[['Current collection', 'Required Collection']].head()
-            print(sample)
-            test_calc = ((current / required) * 100).round(1)
-            print("\nResulting percentages:")
-            print(test_calc.head())
+            # Debug using Streamlit
+            st.write("Debug - Sample Data:")
+            st.write("Current Collection:", current.head())
+            st.write("Required Collection:", required.head())
+            st.write("Calculated Percentages:", ((current / required) * 100).round(1).head())
 
             df['Collection Percentage'] = ((current / required) * 100).round(1).clip(0, 100)
             df['Collection Shortfall'] = required - current
